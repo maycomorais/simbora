@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simbora — Admin</title>
+    <title>Locanda — Admin</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link
@@ -69,6 +69,10 @@
         <div class="menu-item restrito-func" onclick="showTab('configuracoes', event)">
           <i class="fas fa-cogs"></i><span class="mobile-hide"> Config</span>
         </div>
+      </div>
+
+      <div class="menu-item restrito-gerente" onclick="showTab('inventario', event)" id="menu-inventario">
+          <i class="fas fa-boxes"></i><span class="mobile-hide"> Estoque</span>
       </div>
 
       <div class="menu-item" onclick="logout()" style="margin-top: auto; background: #c0392b">
@@ -797,7 +801,7 @@
           <div class="cfg-grid">
             <div class="form-group">
               <label>Nome da Loja</label>
-              <input type="text" id="cfg-nome-loja" class="form-control" placeholder="Ex: Cantinho Brasileiro">
+              <input type="text" id="cfg-nome-loja" class="form-control" placeholder="Ex: Simbora Food Park">
             </div>
             <div class="form-group">
               <label>Cor Principal (botões)</label>
@@ -873,6 +877,51 @@
           </button>
         </div>
 
+      </div>
+
+
+      <!-- ===== ABA INVENTÁRIO ===== -->
+      <div id="inventario" class="tab-content">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <h2 class="section-title" style="margin:0">📦 Controle de Estoque</h2>
+          <button class="btn btn-success" onclick="abrirModalInventario()">
+            <i class="fas fa-plus"></i> Novo Item
+          </button>
+        </div>
+
+        <div id="alerta-estoque-baixo" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:0.87rem;color:#856404">
+          <strong>⚠️ Estoque baixo:</strong> <span id="alerta-estoque-lista"></span>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="inv-busca" class="form-control" placeholder="🔍 Buscar item..."
+                 oninput="filtrarInventario()" style="max-width:280px">
+          <select id="inv-filtro-status" class="form-control" onchange="filtrarInventario()" style="max-width:180px">
+            <option value="">Todos</option>
+            <option value="ok">✅ Estoque OK</option>
+            <option value="baixo">⚠️ Estoque baixo</option>
+            <option value="zerado">🔴 Zerado</option>
+          </select>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:0.88rem" id="tabela-inventario">
+            <thead>
+              <tr style="background:#f4f6f8">
+                <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #e0e0e0">Item</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Unidade</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Qtd. Atual</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Mínimo</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Status</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Vinculado a</th>
+                <th style="padding:12px 8px;text-align:center;border-bottom:2px solid #e0e0e0">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="inventario-lista">
+              <tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div><!-- /main-content -->
@@ -1100,6 +1149,25 @@
         <hr class="modal-divisor"/>
 
         <!-- ── EXTRAS (ADICIONAIS) — Para todos os tipos ── -->
+        <!-- Estoque -->
+        <div class="form-group" style="background:#f0fff4;border:1px solid #a7f3d0;border-radius:10px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <label style="font-weight:700;margin:0">
+              📦 Controle de Estoque
+              <small style="display:block;font-weight:normal;color:#888">Vincula este produto a um item do inventário</small>
+            </label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="checkbox" id="prod-tem-estoque" style="width:18px;height:18px" onchange="toggleEstoqueProduto()">
+              <label for="prod-tem-estoque" style="cursor:pointer;font-size:0.9rem">Ativar</label>
+            </div>
+          </div>
+          <div id="estoque-area" style="display:none">
+            <select id="prod-inventario-id" class="form-control">
+              <option value="">— Selecione o item do estoque —</option>
+            </select>
+          </div>
+        </div>
+
         <div class="form-group" style="background:#f0f9ff; border:1px solid #bee3f8; border-radius:10px; padding:12px">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
             <label style="font-weight:700; margin:0">
@@ -1333,5 +1401,83 @@
   </div>
 </div>
 
+
+    <!-- ===== MODAL INVENTÁRIO ===== -->
+    <div id="modal-inventario" class="modal-overlay" style="display:none">
+      <div class="modal-content" style="max-width:480px">
+        <h3 id="modal-inv-titulo">📦 Item de Estoque</h3>
+        <input type="hidden" id="inv-id">
+        <div class="form-group">
+          <label>Nome do item <span style="color:red">*</span></label>
+          <input type="text" id="inv-nome" class="form-control" placeholder="Ex: Coca-Cola Zero 500ml">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Quantidade atual</label>
+            <input type="number" id="inv-qtd" class="form-control" placeholder="0" min="0" step="1">
+          </div>
+          <div class="form-group">
+            <label>Unidade</label>
+            <select id="inv-unidade" class="form-control">
+              <option value="un">Unidades (un)</option>
+              <option value="kg">Quilos (kg)</option>
+              <option value="g">Gramas (g)</option>
+              <option value="L">Litros (L)</option>
+              <option value="ml">Mililitros (ml)</option>
+              <option value="cx">Caixas (cx)</option>
+              <option value="pct">Pacotes (pct)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Quantidade mínima (alerta)</label>
+          <input type="number" id="inv-minimo" class="form-control" placeholder="Ex: 5" min="0" step="1">
+          <small style="color:#888">Alerta quando ficar abaixo deste valor.</small>
+        </div>
+        <div class="form-group">
+          <label>Vincular a um Produto (opcional)</label>
+          <select id="inv-produto-id" class="form-control">
+            <option value="">— Sem vínculo —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Observações</label>
+          <input type="text" id="inv-obs" class="form-control" placeholder="Ex: Geladeiro 2, prateleira A">
+        </div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="salvarInventario()"><i class="fas fa-save"></i> Salvar</button>
+          <button class="btn btn-secondary" onclick="fecharModal('modal-inventario')">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MODAL AJUSTE DE ESTOQUE ===== -->
+    <div id="modal-ajuste-estoque" class="modal-overlay" style="display:none">
+      <div class="modal-content" style="max-width:380px">
+        <h3>📊 Ajustar Estoque</h3>
+        <input type="hidden" id="ajuste-inv-id">
+        <p id="ajuste-inv-nome" style="font-weight:600;font-size:1rem;color:#2c3e50;margin-bottom:16px"></p>
+        <div class="form-group">
+          <label>Tipo de ajuste</label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <button type="button" id="btn-ajuste-add" class="btn btn-success" style="flex:1" onclick="setTipoAjuste('add')">➕ Entrada</button>
+            <button type="button" id="btn-ajuste-sub" class="btn btn-secondary" style="flex:1;opacity:0.5" onclick="setTipoAjuste('sub')">➖ Saída</button>
+            <button type="button" id="btn-ajuste-set" class="btn btn-secondary" style="flex:1;opacity:0.5" onclick="setTipoAjuste('set')">✏️ Definir</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label id="ajuste-qtd-label">Quantidade a adicionar</label>
+          <input type="number" id="ajuste-qtd" class="form-control" min="0" step="1" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label>Motivo (opcional)</label>
+          <input type="text" id="ajuste-motivo" class="form-control" placeholder="Ex: Compra de fornecedor">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" onclick="confirmarAjuste()">Confirmar</button>
+          <button class="btn btn-secondary" onclick="fecharModal('modal-ajuste-estoque')">Cancelar</button>
+        </div>
+      </div>
+    </div>
 </body>
 </html>

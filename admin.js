@@ -147,6 +147,7 @@ function showTab(tabId, event) {
       carregarCupons();
     }
   }
+  if (realTabId === 'inventario') carregarInventario();
 }
 
 function showSubTab(subId) {
@@ -1856,6 +1857,8 @@ async function salvarProduto() {
       if (precos.length > 0) precoBase = Math.min(...precos);
     }
 
+    const temEstoque = document.getElementById('prod-tem-estoque')?.checked || false;
+    const inventarioId = temEstoque ? (parseInt(document.getElementById('prod-inventario-id')?.value) || null) : null;
     const dados = {
       nome: document.getElementById('prod-nome').value,
       descricao: document.getElementById('prod-desc').value,
@@ -1864,9 +1867,10 @@ async function salvarProduto() {
       subcategoria_slug: document.getElementById('prod-subcat')?.value || null,
       imagem_url: urlFinal,
       e_montavel: isM,
-      montagem_config: configFinal, // salva config completo sempre (etapas + extras + preparo + __tipo)
+      montagem_config: configFinal,
       ativo: true,
       somente_balcao: document.getElementById('prod-somente-balcao')?.checked || false,
+      inventario_id: inventarioId,
     };
 
     if (id) await supa.from('produtos').update(dados).eq('id', id);
@@ -1896,6 +1900,10 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   document.getElementById('prod-somente-balcao').checked = false;
   document.getElementById('prod-tem-extras').checked = false;
   document.getElementById('extras-area').style.display = 'none';
+  const _temEst = document.getElementById('prod-tem-estoque');
+  const _estArea = document.getElementById('estoque-area');
+  if (_temEst) _temEst.checked = false;
+  if (_estArea) _estArea.style.display = 'none';
   document.getElementById('extras-lista').innerHTML = '';
   document.getElementById('shake-tamanhos-lista') && (document.getElementById('shake-tamanhos-lista').innerHTML = '');
   document.getElementById('shake-sabores-lista') && (document.getElementById('shake-sabores-lista').innerHTML = '');
@@ -1920,7 +1928,13 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
     document.getElementById('prod-preco').value = produto.preco;
     document.getElementById('prod-img').value = produto.imagem_url || '';
     document.getElementById('prod-somente-balcao').checked = produto.somente_balcao || false;
-
+    if (produto.inventario_id) {
+      const _temEst2 = document.getElementById('prod-tem-estoque');
+      const _estArea2 = document.getElementById('estoque-area');
+      if (_temEst2) _temEst2.checked = true;
+      if (_estArea2) _estArea2.style.display = 'block';
+      _carregarSelectInventario(produto.inventario_id);
+    }
     if (produto.imagem_url) {
       document.getElementById('img-preview').src = produto.imagem_url;
       document.getElementById('box-preview').style.display = 'block';
@@ -2347,7 +2361,7 @@ async function carregarExtrasGlobaisAdmin() {
   if (!lista) return;
   lista.innerHTML = '';
   try {
-    const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
+    const { data, error } = await supa.from('configuracoes').select('extras_globais').maybeSingle();
 
     // Se der erro de coluna não encontrada, apenas ignora
     if (error) {
@@ -3760,7 +3774,10 @@ async function carregarConfiguracoes() {
     _cardCupons.style.display =
       perfilUsuario === 'dono' || perfilUsuario === 'gerente' ? '' : 'none';
 
-  const { data } = await supa.from('configuracoes').select('*').single();
+  const { data } = await supa.from('configuracoes').select('*').maybeSingle();
+  // Renderiza UI mesmo sem dados (banco novo)
+  _renderGradeSemanal((data && data.horarios_semanais) || {});
+  _renderTabelaFrete((data && data.tabela_frete) || null);
   if (!data) return;
 
   const s = (id, val) => {
@@ -3772,8 +3789,6 @@ async function carregarConfiguracoes() {
   s('cfg-banner-id', data.banner_produto_id || '');
   s('cfg-banner-img', data.banner_imagem || '');
 
-  // Renderiza a grade semanal com dados salvos (ou vazia)
-  _renderGradeSemanal(data.horarios_semanais || {});
 
   if (data.banner_imagem) {
     const prev = document.getElementById('cfg-banner-preview');
@@ -3812,8 +3827,7 @@ async function carregarConfiguracoes() {
   // Carrega adicionais globais
   await carregarExtrasGlobaisAdmin();
 
-  // Carrega tabela de frete e combustível
-  _renderTabelaFrete(data.tabela_frete || null);
+  // Carrega combustível
   const combEl = document.getElementById('cfg-combustivel');
   if (combEl) {
     const saved = data.ajuda_combustivel ?? 20000;
@@ -4344,7 +4358,7 @@ async function carregarPDV() {
   produtosCatsPDV = cats || [];
 
   // Carrega cotação atual das configurações
-  const { data: cfg } = await supa.from('configuracoes').select('cotacao_real').single();
+  const { data: cfg } = await supa.from('configuracoes').select('cotacao_real').maybeSingle();
   if (cfg && cfg.cotacao_real) _cotacaoPDV = Number(cfg.cotacao_real);
 
   renderizarGridPDV();
@@ -5790,4 +5804,222 @@ if (typeof fecharModal !== 'function') {
       modal.style.display = 'none';
     }
   }
+}
+
+/* ══════════════════════════════════════════════════════════
+   INVENTÁRIO — Controle de Estoque
+   ══════════════════════════════════════════════════════════ */
+
+let _inventarioItems = [];
+let _tipoAjuste = 'add';
+
+async function carregarInventario() {
+  const tbody = document.getElementById('inventario-lista');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa"><i class="fas fa-spinner fa-spin"></i> Carregando...</td></tr>';
+
+  // IMPORTANTE: usar hint de FK pois inventario e produtos têm 2 relações
+  const { data, error } = await supa
+    .from('inventario')
+    .select('id, nome, quantidade, unidade, quantidade_minima, observacoes, produto_id, produtos!inventario_produto_id_fkey(nome)')
+    .order('nome');
+
+  if (error) {
+    // Fallback sem join se der erro de relação
+    const { data: d2, error: e2 } = await supa.from('inventario').select('*').order('nome');
+    if (e2) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#e74c3c">Erro: ${e2.message}</td></tr>`;
+      return;
+    }
+    _inventarioItems = (d2 || []).map(i => ({ ...i, produtos: null }));
+  } else {
+    _inventarioItems = data || [];
+  }
+  _renderInventario(_inventarioItems);
+  _verificarAlertasEstoque();
+}
+
+function _renderInventario(items) {
+  const tbody = document.getElementById('inventario-lista');
+  if (!tbody) return;
+  if (!items || items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#aaa">Nenhum item cadastrado. Clique em "+ Novo Item" para começar.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(item => {
+    const qtd = item.quantidade ?? 0;
+    const min = item.quantidade_minima ?? 0;
+    let statusHtml, rowBg;
+    if (qtd <= 0) {
+      statusHtml = '<span style="background:#fee2e2;color:#dc2626;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">🔴 Zerado</span>';
+      rowBg = '#fff5f5';
+    } else if (min > 0 && qtd <= min) {
+      statusHtml = '<span style="background:#fef3c7;color:#d97706;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">⚠️ Baixo</span>';
+      rowBg = '#fffbeb';
+    } else {
+      statusHtml = '<span style="background:#dcfce7;color:#16a34a;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">✅ OK</span>';
+      rowBg = '';
+    }
+    const prodNome = item.produtos
+      ? `<span style="font-size:0.78rem;background:#e8f4fd;color:#1a6eb5;padding:2px 8px;border-radius:10px">${item.produtos.nome}</span>`
+      : '<span style="color:#ccc;font-size:0.78rem">—</span>';
+    const nomeEsc = (item.nome||'').replace(/'/g,"\'").replace(/"/g,'&quot;');
+    return `<tr style="border-bottom:1px solid #f0f0f0;background:${rowBg}" data-id="${item.id}" data-nome="${(item.nome||'').replace(/"/g,'&quot;')}" data-qtd="${qtd}" data-status="${qtd<=0?'zerado':min>0&&qtd<=min?'baixo':'ok'}">
+      <td style="padding:12px 14px;font-weight:600">${item.nome || ''}${item.observacoes ? `<br><small style="color:#888;font-weight:400">${item.observacoes}</small>` : ''}</td>
+      <td style="padding:12px 8px;text-align:center;color:#666">${item.unidade || 'un'}</td>
+      <td style="padding:12px 8px;text-align:center;font-size:1.05rem;font-weight:700;color:${qtd<=0?'#dc2626':min>0&&qtd<=min?'#d97706':'#16a34a'}">${qtd}</td>
+      <td style="padding:12px 8px;text-align:center;color:#888">${min > 0 ? min : '—'}</td>
+      <td style="padding:12px 8px;text-align:center">${statusHtml}</td>
+      <td style="padding:12px 8px;text-align:center">${prodNome}</td>
+      <td style="padding:12px 8px;text-align:center;white-space:nowrap">
+        <button class="btn btn-sm" style="background:#3498db;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="abrirModalAjuste(${item.id}, '${nomeEsc}', ${qtd})" title="Ajustar">📊</button>
+        <button class="btn btn-sm" style="background:#f59e0b;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="abrirModalInventario(${item.id})" title="Editar">✏️</button>
+        <button class="btn btn-sm" style="background:#e74c3c;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="excluirInventario(${item.id})" title="Excluir">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filtrarInventario() {
+  const busca = (document.getElementById('inv-busca')?.value || '').toLowerCase();
+  const status = document.getElementById('inv-filtro-status')?.value || '';
+  document.querySelectorAll('#inventario-lista tr[data-id]').forEach(row => {
+    const matchBusca = !busca || (row.dataset.nome||'').toLowerCase().includes(busca);
+    const matchStatus = !status || row.dataset.status === status;
+    row.style.display = matchBusca && matchStatus ? '' : 'none';
+  });
+}
+
+function _verificarAlertasEstoque() {
+  const baixos = _inventarioItems.filter(i => {
+    const q = i.quantidade ?? 0; const m = i.quantidade_minima ?? 0;
+    return q <= 0 || (m > 0 && q <= m);
+  });
+  const alertEl = document.getElementById('alerta-estoque-baixo');
+  const listaEl = document.getElementById('alerta-estoque-lista');
+  if (!alertEl) return;
+  if (baixos.length > 0) {
+    alertEl.style.display = 'block';
+    listaEl.textContent = baixos.map(i => `${i.nome} (${i.quantidade ?? 0} ${i.unidade || 'un'})`).join(' • ');
+  } else { alertEl.style.display = 'none'; }
+}
+
+async function abrirModalInventario(id = null) {
+  document.getElementById('inv-id').value = id || '';
+  document.getElementById('inv-nome').value = '';
+  document.getElementById('inv-qtd').value = '';
+  document.getElementById('inv-unidade').value = 'un';
+  document.getElementById('inv-minimo').value = '';
+  document.getElementById('inv-obs').value = '';
+  document.getElementById('inv-produto-id').innerHTML = '<option value="">— Sem vínculo —</option>';
+  document.getElementById('modal-inv-titulo').textContent = id ? '✏️ Editar Item de Estoque' : '📦 Novo Item de Estoque';
+
+  const { data: prods } = await supa.from('produtos').select('id, nome').eq('ativo', true).order('nome');
+  if (prods) {
+    const sel = document.getElementById('inv-produto-id');
+    prods.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = p.nome; sel.appendChild(o); });
+  }
+
+  if (id) {
+    const item = _inventarioItems.find(i => i.id === id);
+    if (item) {
+      document.getElementById('inv-nome').value = item.nome || '';
+      document.getElementById('inv-qtd').value = item.quantidade ?? '';
+      document.getElementById('inv-unidade').value = item.unidade || 'un';
+      document.getElementById('inv-minimo').value = item.quantidade_minima ?? '';
+      document.getElementById('inv-obs').value = item.observacoes || '';
+      if (item.produto_id) document.getElementById('inv-produto-id').value = item.produto_id;
+    }
+  }
+  document.getElementById('modal-inventario').style.display = 'flex';
+}
+
+async function salvarInventario() {
+  const id = document.getElementById('inv-id').value;
+  const nome = document.getElementById('inv-nome').value.trim();
+  if (!nome) { alert('Informe o nome do item.'); return; }
+  const dados = {
+    nome,
+    quantidade: parseFloat(document.getElementById('inv-qtd').value) || 0,
+    unidade: document.getElementById('inv-unidade').value,
+    quantidade_minima: parseFloat(document.getElementById('inv-minimo').value) || null,
+    observacoes: document.getElementById('inv-obs').value.trim() || null,
+    produto_id: parseInt(document.getElementById('inv-produto-id').value) || null,
+  };
+  const { error } = id
+    ? await supa.from('inventario').update(dados).eq('id', id)
+    : await supa.from('inventario').insert([dados]);
+  if (error) { alert('Erro: ' + error.message); return; }
+  fecharModal('modal-inventario');
+  carregarInventario();
+}
+
+async function excluirInventario(id) {
+  if (!confirm('Excluir este item do estoque?')) return;
+  const { error } = await supa.from('inventario').delete().eq('id', id);
+  if (error) { alert('Erro: ' + error.message); return; }
+  carregarInventario();
+}
+
+function setTipoAjuste(tipo) {
+  _tipoAjuste = tipo;
+  ['add','sub','set'].forEach(t => {
+    const btn = document.getElementById(`btn-ajuste-${t}`);
+    if (btn) btn.style.opacity = t === tipo ? '1' : '0.5';
+  });
+  const labels = { add: 'Quantidade a adicionar', sub: 'Quantidade a remover', set: 'Nova quantidade total' };
+  const el = document.getElementById('ajuste-qtd-label');
+  if (el) el.textContent = labels[tipo] || 'Quantidade';
+}
+
+function abrirModalAjuste(id, nome, qtdAtual) {
+  _tipoAjuste = 'add';
+  document.getElementById('ajuste-inv-id').value = id;
+  document.getElementById('ajuste-inv-nome').textContent = `${nome} — Atual: ${qtdAtual}`;
+  document.getElementById('ajuste-qtd').value = '';
+  document.getElementById('ajuste-motivo').value = '';
+  setTipoAjuste('add');
+  document.getElementById('modal-ajuste-estoque').style.display = 'flex';
+}
+
+async function confirmarAjuste() {
+  const id = document.getElementById('ajuste-inv-id').value;
+  const qtd = parseFloat(document.getElementById('ajuste-qtd').value);
+  if (isNaN(qtd) || qtd < 0) { alert('Informe uma quantidade válida.'); return; }
+  const item = _inventarioItems.find(i => i.id == id);
+  const atual = item ? (item.quantidade ?? 0) : 0;
+  const nova = _tipoAjuste === 'add' ? atual + qtd : _tipoAjuste === 'sub' ? Math.max(0, atual - qtd) : qtd;
+  const { error } = await supa.from('inventario').update({ quantidade: nova }).eq('id', id);
+  if (error) { alert('Erro: ' + error.message); return; }
+  await supa.from('inventario_movimentos').insert([{
+    inventario_id: parseInt(id), tipo: _tipoAjuste, quantidade: qtd,
+    motivo: document.getElementById('ajuste-motivo').value.trim() || null,
+    usuario_email: (await supa.auth.getUser()).data?.user?.email || '',
+  }]).catch(() => {});
+  fecharModal('modal-ajuste-estoque');
+  carregarInventario();
+}
+
+async function _carregarSelectInventario(selectedId = null) {
+  const sel = document.getElementById('prod-inventario-id');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Selecione o item do estoque —</option>';
+  const { data } = await supa.from('inventario').select('id, nome, quantidade, unidade').order('nome');
+  if (data) {
+    data.forEach(i => {
+      const opt = document.createElement('option');
+      opt.value = i.id;
+      opt.textContent = `${i.nome} (${i.quantidade ?? 0} ${i.unidade || 'un'})`;
+      if (selectedId && i.id == selectedId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+function toggleEstoqueProduto() {
+  const checked = document.getElementById('prod-tem-estoque')?.checked;
+  const area = document.getElementById('estoque-area');
+  if (!area) return;
+  area.style.display = checked ? 'block' : 'none';
+  if (checked) _carregarSelectInventario();
 }

@@ -3666,3 +3666,29 @@ hr.modal-divisor {
     #modal-relatorio table { font-size: 0.75rem; }
     #modal-relatorio th, #modal-relatorio td { padding: 8px 6px; }
 }
+/* ══════════════════════════════
+   INVENTÁRIO
+══════════════════════════════ */
+#inventario .btn-sm {
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+}
+#tabela-inventario tr:hover td {
+  background: rgba(0,0,0,0.02);
+}
+#tabela-inventario thead th {
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #555;
+}
+@media (max-width: 768px) {
+  #tabela-inventario { font-size: 0.78rem; }
+  #tabela-inventario th:nth-child(4),
+  #tabela-inventario td:nth-child(4),
+  #tabela-inventario th:nth-child(6),
+  #tabela-inventario td:nth-child(6) { display: none; }
+}

@@ -1,16 +1,16 @@
 // ==========================================
 // 1. CONFIGURAÇÕES & DADOS GERAIS
 // ==========================================
-const FONE_LOJA = '595991209643' // Simbora Food Park;
+const FONE_LOJA = '' // Locanda Pizzeria; 
 const COORD_LOJA = { lat: -25.2365803, lng: -57.5380816 };
 let COTACAO_REAL = 1100;
 let autoConfirmTimer = null;
 
 // DADOS DE PAGAMENTO (Pix e Alias)
-const CHAVE_PIX = '';
-const NOME_PIX = '';
-const DADOS_ALIAS = '';
-const ALIAS_PY = '';
+const CHAVE_PIX = 'thomaz719@gmail.com';
+const NOME_PIX = 'Thomaz Victor Sousa dos Anjos';
+const DADOS_ALIAS = '9356779';         // Transferência Banco Ueno
+const ALIAS_PY = 'Thomaz Victor Sousa dos Anjos';  // Titular Banco Ueno
 
 function iniciarTimerAutoConfirmacao(pedidoId) {
     // 4 horas em milissegundos
@@ -30,17 +30,17 @@ function iniciarTimerAutoConfirmacao(pedidoId) {
     // Salva timestamp no localStorage para persistir entre reloads
     const agora = new Date().getTime();
     const tempoExpiracao = agora + QUATRO_HORAS;
-    localStorage.setItem('simbora_confirmExpiry_' + pedidoId, tempoExpiracao);
+    localStorage.setItem('locanda_confirmExpiry_' + pedidoId, tempoExpiracao);
     
     console.log('⏰ Timer de auto-confirmação iniciado para 4 horas');
 }
 
 // ===== FUNÇÃO PARA RESTAURAR TIMER APÓS RELOAD =====
 function restaurarTimerSeNecessario() {
-    const pedidoId = localStorage.getItem('simbora_pedido_id');
+    const pedidoId = localStorage.getItem('locanda_pedido_id');
     if (!pedidoId) return;
     
-    const tempoExpiracao = localStorage.getItem('simbora_confirmExpiry_' + pedidoId);
+    const tempoExpiracao = localStorage.getItem('locanda_confirmExpiry_' + pedidoId);
     if (!tempoExpiracao) return;
     
     const agora = new Date().getTime();
@@ -75,7 +75,7 @@ async function confirmarEntregaAutomatica(pedidoId) {
         console.log('✅ Entrega confirmada automaticamente após 4 horas');
         
         // Limpa dados locais
-        localStorage.removeItem('simbora_confirmExpiry_' + pedidoId);
+        localStorage.removeItem('locanda_confirmExpiry_' + pedidoId);
         fecharTracker();
         
         // Mostra notificação
@@ -91,7 +91,7 @@ async function confirmarEntregaAutomatica(pedidoId) {
 
 // ===== CONFIRMAÇÃO MANUAL (CLIENTE) =====
 async function confirmarEntregaCliente() {
-    const pedidoId = localStorage.getItem('simbora_pedido_id');
+    const pedidoId = localStorage.getItem('locanda_pedido_id');
     if (!pedidoId) {
         alert('Erro: Pedido não encontrado');
         return;
@@ -118,7 +118,7 @@ async function confirmarEntregaCliente() {
         if (autoConfirmTimer) {
             clearTimeout(autoConfirmTimer);
         }
-        localStorage.removeItem('simbora_confirmExpiry_' + pedidoId);
+        localStorage.removeItem('locanda_confirmExpiry_' + pedidoId);
         
         // Atualiza UI
         mostrarMensagemEntregaConfirmada();
@@ -173,7 +173,7 @@ function mostrarTracker(status, uidPedido) {
     if (tr) tr.style.display = 'block';
 
     // Botão confirmar entrega se saiu para entrega
-    const pedidoId = localStorage.getItem('simbora_pedido_id');
+    const pedidoId = localStorage.getItem('locanda_pedido_id');
     if (status === 'saiu_entrega' && pedidoId) {
         const tr2 = document.getElementById('track-result');
         if (tr2 && !document.getElementById('btn-confirmar-entrega')) {
@@ -185,14 +185,14 @@ function mostrarTracker(status, uidPedido) {
                 </button>
             `);
         }
-        const tempoExpiracao = localStorage.getItem('simbora_confirmExpiry_' + pedidoId);
+        const tempoExpiracao = localStorage.getItem('locanda_confirmExpiry_' + pedidoId);
         if (!tempoExpiracao) iniciarTimerAutoConfirmacao(pedidoId);
     }
 
     if (status === 'entregue') {
         mostrarMensagemEntregaConfirmada();
         if (autoConfirmTimer) clearTimeout(autoConfirmTimer);
-        localStorage.removeItem('simbora_confirmExpiry_' + pedidoId);
+        localStorage.removeItem('locanda_confirmExpiry_' + pedidoId);
     }
 }
 
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function carregarExtrasGlobais() {
   try {
     // Tenta buscar com a coluna extras_globais
-    const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
+    const { data, error } = await supa.from('configuracoes').select('extras_globais').maybeSingle();
 
     // Se der erro de coluna não encontrada, ignora silenciosamente
     if (error) {
@@ -306,7 +306,7 @@ async function carregarExtrasGlobais() {
 
 // Verifica Horário e Atualiza Banner
 async function verificarHorario() {
-  const { data } = await supa.from('configuracoes').select('*').single();
+  const { data } = await supa.from('configuracoes').select('*').maybeSingle();
   if (!data) return;
 
   if (data.cotacao_real) COTACAO_REAL = data.cotacao_real;
@@ -2146,8 +2146,8 @@ async function enviarZap() {
 
   // Pedido duplo: bloqueia se mesmo carrinho enviado no último 1h
   const _agora = Date.now();
-  const _ultimoHash = localStorage.getItem('simbora_last_hash');
-  const _ultimoTs   = parseInt(localStorage.getItem('simbora_last_ts') || '0');
+  const _ultimoHash = localStorage.getItem('locanda_last_hash');
+  const _ultimoTs   = parseInt(localStorage.getItem('locanda_last_ts') || '0');
   const _hashAtual  = carrinho.map(i => i.nome + i.qtd).sort().join('|');
   if (_ultimoHash === _hashAtual && (_agora - _ultimoTs) < 3600000) {
     return alert('🚫 Seu pedido anterior foi computado, estamos bloqueando esta segunda tentativa.');
@@ -2252,8 +2252,8 @@ async function enviarZap() {
   }
 
   // Salva localmente para "Repetir Pedido"
-  localStorage.setItem('simbora_last', JSON.stringify(carrinho));
-  localStorage.setItem('simbora_user', JSON.stringify({ nome, tel }));
+  localStorage.setItem('locanda_last', JSON.stringify(carrinho));
+  localStorage.setItem('locanda_user', JSON.stringify({ nome, tel }));
 
   // 2. Usa o número real do pedido na mensagem
   const idDisplay = numeroPedido || 'TEMP';
@@ -2356,8 +2356,8 @@ async function enviarZap() {
 
   // Salva hash anti-duplicata ANTES de enviar
   const _hashFinal = carrinho.map(i => i.nome + i.qtd).sort().join('|');
-  localStorage.setItem('simbora_last_hash', _hashFinal);
-  localStorage.setItem('simbora_last_ts',   Date.now().toString());
+  localStorage.setItem('locanda_last_hash', _hashFinal);
+  localStorage.setItem('locanda_last_ts',   Date.now().toString());
 
   // Modal de confirmação 5s antes de abrir WhatsApp
   await _mostrarModalEnvio(msg, numeroPedido);
@@ -2428,8 +2428,8 @@ function _abrirZapEFechar(msg, numeroPedido, modal, resolve) {
 
   // Limpa backup imediatamente para não restaurar na próxima visita
   try {
-    localStorage.removeItem('simbora_carrinho_backup');
-    localStorage.removeItem('simbora_carrinho_backup_time');
+    localStorage.removeItem('locanda_carrinho_backup');
+    localStorage.removeItem('locanda_carrinho_backup_time');
   } catch(e) {}
 
   updateUI();
@@ -2445,13 +2445,13 @@ function _abrirZapEFechar(msg, numeroPedido, modal, resolve) {
 // 9. DADOS LOCAIS & REPETIR PEDIDO (Funções Restauradas)
 // ==========================================
 function carregarDadosLocal() {
-  const user = JSON.parse(localStorage.getItem('simbora_user'));
+  const user = JSON.parse(localStorage.getItem('locanda_user'));
   if (user) {
     if (document.getElementById('cli-nome')) document.getElementById('cli-nome').value = user.nome;
     if (document.getElementById('cli-tel')) document.getElementById('cli-tel').value = user.tel;
   }
 
-  const last = JSON.parse(localStorage.getItem('simbora_last'));
+  const last = JSON.parse(localStorage.getItem('locanda_last'));
   const box = document.getElementById('buy-again-container');
 
   if (last && Array.isArray(last) && last.length > 0) {
@@ -2471,7 +2471,7 @@ function carregarDadosLocal() {
 }
 
 function repetirPedido() {
-  const last = JSON.parse(localStorage.getItem('simbora_last'));
+  const last = JSON.parse(localStorage.getItem('locanda_last'));
   if (last && Array.isArray(last) && last.length > 0) {
     carrinho = last;
     updateUI();
@@ -2522,8 +2522,8 @@ function iniciarTracking(pedidoDbId, uidTemporal) {
     const uid      = uidTemporal || pedidoDbId;
 
     try {
-        localStorage.setItem('simbora_pedido_id',  pedidoDbId);
-        localStorage.setItem('simbora_pedido_uid', uid);
+        localStorage.setItem('locanda_pedido_id',  pedidoDbId);
+        localStorage.setItem('locanda_pedido_uid', uid);
     } catch(e) {}
 
     _lastTrackedSt = 'pendente';
@@ -2567,9 +2567,9 @@ function _iniciarPollingTracking(pedidoId, uid) {
 
             // Notificação push
             if ('Notification' in window && Notification.permission === 'granted' && TRACKER_STEPS[data.status]) {
-                new Notification('Simbora Food Park 🇧🇷', {
+                new Notification('Locanda Pizzeria 🇧🇷', {
                     body: TRACKER_STEPS[data.status].msg,
-                    icon: 'https://instagram.fasu6-1.fna.fbcdn.net/v/t51.2885-19/431853496_942267004094241_1803823988526813408_n.jpg?stp=dst-jpg_s150x150_tt6&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLmRqYW5nby41MDAuYzIifQ&_nc_ht=instagram.fasu6-1.fna.fbcdn.net&_nc_cat=109&_nc_oc=Q6cZ2QGl-hUmNDz8AnB0B-21dB_osSz2UnZH2WxSV5d0oLpFa6oAZwzQwm48GWtqND6NBA0&_nc_ohc=P18nrWCjCGUQ7kNvwHHoJFh&_nc_gid=ybNJkmGhn_tdC9kBV-K4HA&edm=AEYEu-QBAAAA&ccb=7-5&oh=00_AfyORFJo08xKoJSaSenzYGoIUHeTuprRVF6Gq2jKTNcA8A&oe=69AE0AE1&_nc_sid=ead929'
+                    icon: 'https://instagram.fasu6-2.fna.fbcdn.net/v/t51.82787-15/573374451_17842149696611574_8991774026443342090_n.jpg?stp=dst-jpg_s150x150_tt6&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLmRqYW5nby4xMDgwLmMyIn0&_nc_ht=instagram.fasu6-2.fna.fbcdn.net&_nc_cat=106&_nc_oc=Q6cZ2QGF-zpjA8cPijPd5RSpqKxETK5rnkkDDh2p9_6yqpej9zo5GRLUgm0d3tqaeu4Q0J4&_nc_ohc=RupM1OUrZJ4Q7kNvwGnum_W&_nc_gid=FbdfUjQDJpnDTLdsOu7bcA&edm=AP4sbd4BAAAA&ccb=7-5&oh=00_AfzONtO62cnJCGwHroepfIxL3OcBuhtF6AcdRJWoRqm39Q&oe=69ABD045&_nc_sid=7a9f4b'
                 });
             }
 
@@ -2577,7 +2577,7 @@ function _iniciarPollingTracking(pedidoId, uid) {
                 clearInterval(_pollingTracker); _pollingTracker = null;
                 if (_trackingChannel) { _trackingChannel.unsubscribe(); _trackingChannel = null; }
                 setTimeout(() => {
-                    try { localStorage.removeItem('simbora_pedido_id'); localStorage.removeItem('simbora_pedido_uid'); } catch(e) {}
+                    try { localStorage.removeItem('locanda_pedido_id'); localStorage.removeItem('locanda_pedido_uid'); } catch(e) {}
                 }, 10000);
             }
         } catch(e) { /* falha silenciosa de rede */ }
@@ -2638,8 +2638,8 @@ function restaurarTrackingSeExistir() {
     const card = document.getElementById('track-order-card');
     if (card) card.style.display = 'none';
 
-    const savedId  = localStorage.getItem('simbora_pedido_id');
-    const savedUid = localStorage.getItem('simbora_pedido_uid');
+    const savedId  = localStorage.getItem('locanda_pedido_id');
+    const savedUid = localStorage.getItem('locanda_pedido_uid');
     if (!savedId) return;
 
     console.log('🔄 Restaurando tracking para pedido:', savedId);
@@ -2650,7 +2650,7 @@ function restaurarTrackingSeExistir() {
             if (error || !data) return;
             // Se já foi entregue ou cancelado, limpa e não mostra tracker
             if (data.status === 'entregue' || data.status === 'cancelado') {
-                try { localStorage.removeItem('simbora_pedido_id'); localStorage.removeItem('simbora_pedido_uid'); } catch(e) {}
+                try { localStorage.removeItem('locanda_pedido_id'); localStorage.removeItem('locanda_pedido_uid'); } catch(e) {}
                 return;
             }
 
@@ -2658,7 +2658,7 @@ function restaurarTrackingSeExistir() {
             if (data.created_at) {
                 const diffHoras = (Date.now() - new Date(data.created_at).getTime()) / 3600000;
                 if (diffHoras > 6) {
-                    try { localStorage.removeItem('simbora_pedido_id'); localStorage.removeItem('simbora_pedido_uid'); } catch(e) {}
+                    try { localStorage.removeItem('locanda_pedido_id'); localStorage.removeItem('locanda_pedido_uid'); } catch(e) {}
                     return;
                 }
             }
@@ -2885,9 +2885,9 @@ function atualizarTrackingVisual(status, motoboy) {
             _trackResult.appendChild(_btn);
         }
         // Inicia timer auto-confirm se ainda não iniciado
-        const _pedidoLocal = localStorage.getItem('simbora_pedido_id');
+        const _pedidoLocal = localStorage.getItem('locanda_pedido_id');
         if (_pedidoLocal && typeof iniciarTimerAutoConfirmacao === 'function') {
-            if (!localStorage.getItem('simbora_confirmExpiry_' + _pedidoLocal)) {
+            if (!localStorage.getItem('locanda_confirmExpiry_' + _pedidoLocal)) {
                 iniciarTimerAutoConfirmacao(_pedidoLocal);
             }
         }
@@ -2916,7 +2916,7 @@ function atualizarTrackingVisual(status, motoboy) {
 
 // ── EDIÇÃO DE PEDIDO PELO CLIENTE ────────────────────────────────
 function abrirEdicaoPedido() {
-    const pedidoId = localStorage.getItem('simbora_pedido_id');
+    const pedidoId = localStorage.getItem('locanda_pedido_id');
     if (!pedidoId) return;
 
     // Fecha tracking e abre carrinho com itens atuais
@@ -2987,7 +2987,7 @@ async function iniciarEdicaoCarrinho(pedidoId) {
 
 // ── SOLICITAR CANCELAMENTO PELO CLIENTE (via tracking) ──────────
 async function solicitarCancelamentoCliente() {
-    const pedidoId = localStorage.getItem('simbora_pedido_id');
+    const pedidoId = localStorage.getItem('locanda_pedido_id');
     if (!pedidoId) return;
     
     const motivo = prompt('Motivo do cancelamento (obrigatório):');
@@ -3012,8 +3012,8 @@ async function solicitarCancelamentoCliente() {
 function iniciarTrackingRealtime(pedidoId) {
     _trackedId     = pedidoId;
     _lastTrackedSt = ''; // força re-render na primeira leitura do polling
-    localStorage.setItem('simbora_pedido_id', pedidoId);
-    localStorage.setItem('simbora_pedido_uid', pedidoId);
+    localStorage.setItem('locanda_pedido_id', pedidoId);
+    localStorage.setItem('locanda_pedido_uid', pedidoId);
     _iniciarPollingTracking(pedidoId, pedidoId);
     _tentarCanalRealtime(pedidoId, pedidoId);
 }
@@ -3091,11 +3091,11 @@ initDeteccaoConexao();
 function salvarCarrinhoLocal() {
   try {
     if (carrinho && carrinho.length > 0) {
-      localStorage.setItem('simbora_carrinho_backup', JSON.stringify(carrinho));
-      localStorage.setItem('simbora_carrinho_backup_time', new Date().toISOString());
+      localStorage.setItem('locanda_carrinho_backup', JSON.stringify(carrinho));
+      localStorage.setItem('locanda_carrinho_backup_time', new Date().toISOString());
     } else {
-      localStorage.removeItem('simbora_carrinho_backup');
-      localStorage.removeItem('simbora_carrinho_backup_time');
+      localStorage.removeItem('locanda_carrinho_backup');
+      localStorage.removeItem('locanda_carrinho_backup_time');
     }
   } catch (e) {
     console.warn('Não foi possível salvar backup do carrinho:', e);
@@ -3104,8 +3104,8 @@ function salvarCarrinhoLocal() {
 
 function restaurarCarrinhoBackup() {
   try {
-    const backup = localStorage.getItem('simbora_carrinho_backup');
-    const backupTime = localStorage.getItem('simbora_carrinho_backup_time');
+    const backup = localStorage.getItem('locanda_carrinho_backup');
+    const backupTime = localStorage.getItem('locanda_carrinho_backup_time');
 
     if (backup && backupTime) {
       const tempoBackup = new Date(backupTime);
