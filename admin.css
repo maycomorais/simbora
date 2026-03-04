@@ -3666,29 +3666,78 @@ hr.modal-divisor {
     #modal-relatorio table { font-size: 0.75rem; }
     #modal-relatorio th, #modal-relatorio td { padding: 8px 6px; }
 }
-/* ══════════════════════════════
-   INVENTÁRIO
-══════════════════════════════ */
-#inventario .btn-sm {
-  padding: 4px 8px;
-  font-size: 0.78rem;
-  border-radius: 6px;
-  cursor: pointer;
-  border: none;
+/* ══════════════════════════════════════════════════════
+   SIDEBAR RETRÁTIL (desktop)
+   ══════════════════════════════════════════════════════ */
+.sidebar {
+  transition: width 0.25s ease;
+  overflow: hidden;
 }
-#tabela-inventario tr:hover td {
-  background: rgba(0,0,0,0.02);
+.sidebar.collapsed {
+  width: 60px !important;
 }
-#tabela-inventario thead th {
-  white-space: nowrap;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #555;
+.sidebar.collapsed .sidebar-label,
+.sidebar.collapsed #user-cargo,
+.sidebar.collapsed #user-email,
+.sidebar.collapsed .brand span#brand-text {
+  display: none !important;
 }
+.sidebar.collapsed .menu-item {
+  justify-content: center !important;
+  padding: 14px 0 !important;
+}
+.sidebar.collapsed .menu-item i {
+  margin: 0 !important;
+  font-size: 1.2rem;
+}
+.sidebar.collapsed .brand {
+  justify-content: center !important;
+  padding: 14px 0 !important;
+}
+/* Badge do menu mesas: não esconder */
+.sidebar.collapsed .pdv-badge-mesas { display: inline !important; }
+
+/* ══════════════════════════════════════════════════════
+   INVENTÁRIO — card layout
+   ══════════════════════════════════════════════════════ */
+.inv-card {
+  background: white;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.inv-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.inv-card-nome { font-weight: 700; font-size: 0.93rem; flex: 1; }
+.inv-card-status-badge { font-size: 0.73rem; font-weight: 700; border-radius: 12px; padding: 3px 10px; white-space: nowrap; }
+.inv-card-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.inv-card-info { font-size: 0.78rem; color: #888; margin-bottom: 4px; }
+.inv-qtd-controls { display: flex; align-items: center; gap: 6px; }
+.inv-qtd-btn {
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  font-size: 1.1rem; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.inv-qtd-btn.minus { background: #fee2e2; color: #dc2626; }
+.inv-qtd-btn.plus  { background: #dcfce7; color: #16a34a; }
+.inv-qtd-val { font-size: 1.1rem; font-weight: 700; min-width: 34px; text-align: center; }
+.inv-card-actions { display: flex; gap: 6px; }
+.inv-card-actions button {
+  border: none; border-radius: 8px; padding: 5px 12px;
+  cursor: pointer; font-size: 0.78rem; font-weight: 600;
+}
+
+/* Padding extra no fundo para não ficar atrás da navbar mobile */
 @media (max-width: 768px) {
-  #tabela-inventario { font-size: 0.78rem; }
-  #tabela-inventario th:nth-child(4),
-  #tabela-inventario td:nth-child(4),
-  #tabela-inventario th:nth-child(6),
-  #tabela-inventario td:nth-child(6) { display: none; }
+  .modal-actions {
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px)) !important;
+  }
+  .modal-content {
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px)) !important;
+  }
+  #pdv-grid { padding-bottom: 90px !important; }
+  .tab-content { padding-bottom: 80px !important; }
 }

@@ -7,21 +7,21 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Locanda Pizzeria">
+    <meta name="apple-mobile-web-app-title" content="Simbora Food Park">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
-    <title>Locanda Pizzeria - Delivery</title>
+    <title>Simbora Food Park - Delivery</title>
     <!-- Open Graph / WhatsApp / Facebook -->
     <meta property="og:type"        content="website">
     <meta property="og:url"         content="https://locanda-pizzeria.com.py/">
-    <meta property="og:title"       content="Locanda Pizzeria 🍕">
+    <meta property="og:title"       content="Simbora Food Park 🍕">
     <meta property="og:description" content="Pedi tu pizza y comida favorita con entrega rápida">
     <meta property="og:image"       content="https://i.ibb.co/9kH7PzZB/simbora.jpg">
     <meta property="og:image:width"  content="1200">
     <meta property="og:image:height" content="630">
     <!-- Twitter Card -->
     <meta name="twitter:card"        content="summary_large_image">
-    <meta name="twitter:title"       content="Locanda Pizzeria 🍕">
+    <meta name="twitter:title"       content="Simbora Food Park 🍕">
     <meta name="twitter:description" content="Pedi tu pizza y comida favorita con entrega rápida">
     <meta name="twitter:image"       content="https://i.ibb.co/9kH7PzZB/simbora.jpg">
     <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
@@ -46,7 +46,7 @@
             <div class="logo-area">
                 <img src="https://i.ibb.co/9kH7PzZB/simbora.jpg" alt="Logo">
                 <div class="store-details">
-                    <h1>Locanda Pizzeria</h1>
+                    <h1>Simbora Food Park</h1>
                     <span class="badge-status open" data-lang-key="header-aberto">Abierto</span>
                 </div>
             </div>
@@ -836,11 +836,13 @@ window.addEventListener('DOMContentLoaded', () => {
         
         // Captura o evento beforeinstallprompt
         window.addEventListener('beforeinstallprompt', (e) => {
+            // Previne o prompt padrão do Chrome
+            e.preventDefault();
+            // Guarda o evento para usar depois
             deferredPrompt = e;
-            e.preventDefault(); // suprime o mini-banner nativo do Chrome
+            // Mostra o banner customizado
             if (pwaBanner) {
-                // Só mostra após 3s para não poluir a primeira visita
-                setTimeout(() => { pwaBanner.style.display = 'block'; }, 3000);
+                pwaBanner.style.display = 'block';
             }
         });
         

@@ -48,6 +48,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const menuFin = document.getElementById('menu-financeiro');
       if (menuFin) menuFin.style.display = 'flex';
     }
+    if (perfilUsuario === 'dono' || perfilUsuario === 'gerente') {
+      const menuEst = document.getElementById('menu-inventario');
+      if (menuEst) menuEst.style.display = 'flex';
+    }
 
     carregarDashboard();
     carregarMotoboysSelect();
@@ -147,7 +151,10 @@ function showTab(tabId, event) {
       carregarCupons();
     }
   }
-  if (realTabId === 'inventario') carregarInventario();
+  if (realTabId === 'inventario') {
+    if (perfilUsuario === 'dono' || perfilUsuario === 'gerente') carregarInventario();
+    else { alert('Acesso restrito.'); showTab('pedidos', null); }
+  }
 }
 
 function showSubTab(subId) {
@@ -605,6 +612,8 @@ async function mudarStatus(id, novoStatus) {
     alert('Erro ao mudar status');
     return;
   }
+
+  if (novoStatus === 'em_preparo') await _descontarEstoqueVenda(id, null);
 
   if (typeof pararAlarme === 'function') pararAlarme();
 
@@ -1900,10 +1909,10 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   document.getElementById('prod-somente-balcao').checked = false;
   document.getElementById('prod-tem-extras').checked = false;
   document.getElementById('extras-area').style.display = 'none';
-  const _temEst = document.getElementById('prod-tem-estoque');
-  const _estArea = document.getElementById('estoque-area');
-  if (_temEst) _temEst.checked = false;
-  if (_estArea) _estArea.style.display = 'none';
+  const _te = document.getElementById('prod-tem-estoque');
+  const _ea = document.getElementById('estoque-area');
+  if (_te) _te.checked = false;
+  if (_ea) _ea.style.display = 'none';
   document.getElementById('extras-lista').innerHTML = '';
   document.getElementById('shake-tamanhos-lista') && (document.getElementById('shake-tamanhos-lista').innerHTML = '');
   document.getElementById('shake-sabores-lista') && (document.getElementById('shake-sabores-lista').innerHTML = '');
@@ -1929,10 +1938,10 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
     document.getElementById('prod-img').value = produto.imagem_url || '';
     document.getElementById('prod-somente-balcao').checked = produto.somente_balcao || false;
     if (produto.inventario_id) {
-      const _temEst2 = document.getElementById('prod-tem-estoque');
-      const _estArea2 = document.getElementById('estoque-area');
-      if (_temEst2) _temEst2.checked = true;
-      if (_estArea2) _estArea2.style.display = 'block';
+      const _te = document.getElementById('prod-tem-estoque');
+      const _ea = document.getElementById('estoque-area');
+      if (_te) _te.checked = true;
+      if (_ea) _ea.style.display = 'block';
       _carregarSelectInventario(produto.inventario_id);
     }
     if (produto.imagem_url) {
@@ -2361,7 +2370,7 @@ async function carregarExtrasGlobaisAdmin() {
   if (!lista) return;
   lista.innerHTML = '';
   try {
-    const { data, error } = await supa.from('configuracoes').select('extras_globais').maybeSingle();
+    const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
 
     // Se der erro de coluna não encontrada, apenas ignora
     if (error) {
@@ -3775,7 +3784,6 @@ async function carregarConfiguracoes() {
       perfilUsuario === 'dono' || perfilUsuario === 'gerente' ? '' : 'none';
 
   const { data } = await supa.from('configuracoes').select('*').maybeSingle();
-  // Renderiza UI mesmo sem dados (banco novo)
   _renderGradeSemanal((data && data.horarios_semanais) || {});
   _renderTabelaFrete((data && data.tabela_frete) || null);
   if (!data) return;
@@ -4052,7 +4060,8 @@ async function salvarPersonalizacao() {
       const { error } = await supa.from('configuracoes').update(dados).gt('id', 0);
       if (error) throw error;
     }
-    alert('✅ Personalização salva! Recarregue o cardápio (index.html) para ver as mudanças.');
+    if (dados.icone_url) _atualizarManifestDinamico(dados.icone_url);
+    alert('✅ Personalização salva! Recarregue o cardápio para ver as mudanças.');
   } catch (e) {
     alert('Erro: ' + e.message);
   } finally {
@@ -4493,24 +4502,12 @@ const _CATS_SEM_EXTRAS_GLOBAIS = ['bebidas', 'bebida', 'extras', 'extra', 'molho
 let _extrasGlobaisCache = null;
 async function _getExtrasGlobais() {
   if (_extrasGlobaisCache !== null) return _extrasGlobaisCache;
-  // Tenta carregar das configurações (campo extras_globais no Supabase)
-  const { data } = await supa
-    .from('configuracoes')
-    .select('extras_globais')
-    .single()
-    .catch(() => ({ data: null }));
-  if (data && Array.isArray(data.extras_globais) && data.extras_globais.length > 0) {
-    _extrasGlobaisCache = data.extras_globais;
-  } else {
-    // Fallback com os extras da foto
-    _extrasGlobaisCache = [
-      { nome: 'Shoyu', preco: 2000 },
-      { nome: 'Taré (Teriaki)', preco: 3000 },
-      { nome: 'Sunomono', preco: 2000 },
-      { nome: 'Jengibre', preco: 2000 },
-      { nome: 'Wasabi', preco: 2000 },
-    ];
-  }
+  try {
+    const { data } = await supa.from('configuracoes').select('extras_globais').maybeSingle();
+    _extrasGlobaisCache = (data && Array.isArray(data.extras_globais) && data.extras_globais.length > 0)
+      ? data.extras_globais
+      : []; // sem fallback hardcoded — se não configurado, não mostra upsell
+  } catch(_e) { _extrasGlobaisCache = []; }
   return _extrasGlobaisCache;
 }
 
@@ -5007,6 +5004,8 @@ async function salvarPedidoBalcao() {
       alert('Erro ao atualizar mesa: ' + error.message);
       return;
     }
+    // Descontar estoque dos novos itens adicionados
+    await _descontarEstoqueVendaItens(novosItens);
 
     // Reset
     window._mesaAbertaId = null;
@@ -5029,7 +5028,7 @@ async function salvarPedidoBalcao() {
   const _agora = new Date().toISOString();
   const pedido = {
     uid_temporal: `BALC-${Math.floor(Math.random() * 1000)}`,
-    status: 'em_preparo',
+    status: _todosBebidas(carrinhoPDV) ? 'pronto_entrega' : 'em_preparo',
     tipo_entrega: 'balcao',
     total_geral: totalNovo,
     subtotal: totalNovo,
@@ -5046,11 +5045,13 @@ async function salvarPedidoBalcao() {
     tempo_preparo_iniciado: _agora,
   };
 
-  const { error } = await supa.from('pedidos').insert([pedido]);
+  const { data: novoPedido, error } = await supa.from('pedidos').insert([pedido]).select('id').single();
   if (error) {
     alert('Erro: ' + error.message);
     return;
   }
+  // Descontar estoque imediatamente (PDV não passa por mudarStatus)
+  if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
 
   carrinhoPDV = [];
   document.getElementById('balcao-cliente').value = '';
@@ -5067,7 +5068,8 @@ async function salvarPedidoBalcao() {
   atualizarCarrinhoPDV();
   atualizarBarraMesasAtivas();
   carregarMonitorMesas();
-  alert('Pedido enviado para a Cozinha! 👨‍🍳');
+  const soBebida = _todosBebidas(novosItens);
+  alert(soBebida ? '✅ Pedido registrado! Só bebidas — direto pra balcão.' : 'Pedido enviado para a Cozinha! 👨‍🍳');
 }
 
 // ── Barra de Mesas Ativas no PDV ─────────────────────────────
@@ -5805,121 +5807,259 @@ if (typeof fecharModal !== 'function') {
     }
   }
 }
+/* ══════════════════════════════════════════════════════════════
+   HELPERS ESTOQUE + PDV
+   ══════════════════════════════════════════════════════════════ */
 
-/* ══════════════════════════════════════════════════════════
-   INVENTÁRIO — Controle de Estoque
-   ══════════════════════════════════════════════════════════ */
+// Detecta se todos os itens do carrinho são bebidas (não vão pra cozinha)
+function _todosBebidas(itens) {
+  if (!itens || !itens.length) return false;
+  return itens.every(i => {
+    const cat = (i.categoria_slug || '').toLowerCase();
+    return cat.includes('bebida') || cat.includes('drink');
+  });
+}
 
+// Desconta estoque a partir de uma lista de itens (para UPDATE de mesa)
+async function _descontarEstoqueVendaItens(itens) {
+  try {
+    if (!itens?.length) return;
+    const prodIds = [...new Set(itens.map(i => i.id || i.produto_id).filter(Boolean))];
+    if (!prodIds.length) return;
+    const { data: prods } = await supa.from('produtos')
+      .select('id, inventario_id')
+      .in('id', prodIds)
+      .not('inventario_id', 'is', null);
+    if (!prods?.length) return;
+    const descontos = {};
+    itens.forEach(item => {
+      const pid = item.id || item.produto_id;
+      const prod = prods.find(p => p.id == pid);
+      if (!prod) return;
+      descontos[prod.inventario_id] = (descontos[prod.inventario_id] || 0) + (item.qtd || 1);
+    });
+    const invIds = Object.keys(descontos).map(Number);
+    const { data: estoques } = await supa.from('inventario').select('id, quantidade').in('id', invIds);
+    if (!estoques?.length) return;
+    for (const est of estoques) {
+      const nova = Math.max(0, (est.quantidade ?? 0) - descontos[est.id]);
+      await supa.from('inventario').update({ quantidade: nova }).eq('id', est.id);
+      await supa.from('inventario_movimentos').insert([{
+        inventario_id: est.id, tipo: 'sub', quantidade: descontos[est.id],
+        motivo: 'Venda PDV (balcão)', usuario_email: 'sistema',
+      }]).then(() => {}).catch(() => {});
+    }
+    console.log(`✅ Estoque descontado: ${estoques.length} item(s)`);
+  } catch(e) { console.warn('Estoque desconto (itens):', e.message); }
+}
+
+// Desconta estoque a partir de pedidoId OU lista de itens
+async function _descontarEstoqueVenda(pedidoId, itensDireto) {
+  try {
+    let itens = itensDireto;
+    // Se não tiver itens diretos, busca do banco
+    if (!itens) {
+      const { data: pedido } = await supa.from('pedidos').select('itens').eq('id', pedidoId).single();
+      itens = pedido?.itens;
+    }
+    if (!itens?.length) return;
+    // Busca produto_ids
+    const prodIds = [...new Set(itens.map(i => i.produto_id || i.id).filter(Boolean))];
+    if (!prodIds.length) return;
+    const { data: prods } = await supa.from('produtos')
+      .select('id, inventario_id').in('id', prodIds).not('inventario_id', 'is', null);
+    if (!prods?.length) return;
+    const descontos = {};
+    itens.forEach(item => {
+      const pid = item.produto_id || item.id;
+      const prod = prods.find(p => p.id == pid);
+      if (!prod) return;
+      descontos[prod.inventario_id] = (descontos[prod.inventario_id] || 0) + (item.qtd || item.q || 1);
+    });
+    const invIds = Object.keys(descontos).map(Number);
+    const { data: estoques } = await supa.from('inventario').select('id, quantidade').in('id', invIds);
+    if (!estoques?.length) return;
+    for (const est of estoques) {
+      const nova = Math.max(0, (est.quantidade ?? 0) - descontos[est.id]);
+      await supa.from('inventario').update({ quantidade: nova }).eq('id', est.id);
+      await supa.from('inventario_movimentos').insert([{
+        inventario_id: est.id, tipo: 'sub', quantidade: descontos[est.id],
+        motivo: pedidoId ? `Venda — Pedido #${pedidoId}` : 'Venda PDV',
+        usuario_email: 'sistema',
+      }]).then(() => {}).catch(() => {});
+    }
+    console.log(`✅ Estoque descontado: pedido ${pedidoId || '(PDV)'}, ${estoques.length} item(s)`);
+  } catch(e) { console.warn('Estoque desconto:', e.message); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SIDEBAR RETRÁTIL (desktop)
+   ══════════════════════════════════════════════════════════════ */
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const main = document.querySelector('.main-content');
+  const btn = document.getElementById('btn-toggle-sidebar');
+  if (!sidebar) return;
+  const collapsed = sidebar.classList.toggle('collapsed');
+  if (btn) btn.innerHTML = collapsed ? '<i class="fas fa-bars"></i>' : '<i class="fas fa-chevron-left"></i>';
+  localStorage.setItem('simbora_sidebar_collapsed', collapsed ? '1' : '0');
+}
+
+// Restaura estado da sidebar ao carregar
+document.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem('simbora_sidebar_collapsed') === '1') {
+    document.querySelector('.sidebar')?.classList.add('collapsed');
+    const btn = document.getElementById('btn-toggle-sidebar');
+    if (btn) btn.innerHTML = '<i class="fas fa-bars"></i>';
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   MANIFEST DINÂMICO
+   ══════════════════════════════════════════════════════════════ */
+function _atualizarManifestDinamico(logoUrl) {
+  try {
+    const manifest = {
+      name: 'Simbora Food Park', short_name: 'Simbora',
+      description: 'Food Park - Delivery rápido',
+      start_url: '/index.html', scope: '/', display: 'standalone',
+      orientation: 'portrait', background_color: '#ffffff', theme_color: '#1d1d1d',
+      icons: [
+        { src: logoUrl, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+        { src: logoUrl, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    let el = document.querySelector('link[rel="manifest"]');
+    if (!el) { el = document.createElement('link'); el.rel = 'manifest'; document.head.appendChild(el); }
+    el.href = URL.createObjectURL(blob);
+    console.log('✅ Manifest atualizado');
+  } catch(e) { console.warn('Manifest:', e.message); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INVENTÁRIO — Card Layout
+   ══════════════════════════════════════════════════════════════ */
 let _inventarioItems = [];
 let _tipoAjuste = 'add';
 
 async function carregarInventario() {
-  const tbody = document.getElementById('inventario-lista');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa"><i class="fas fa-spinner fa-spin"></i> Carregando...</td></tr>';
-
-  // IMPORTANTE: usar hint de FK pois inventario e produtos têm 2 relações
-  const { data, error } = await supa
-    .from('inventario')
-    .select('id, nome, quantidade, unidade, quantidade_minima, observacoes, produto_id, produtos!inventario_produto_id_fkey(nome)')
+  if (perfilUsuario !== 'dono' && perfilUsuario !== 'gerente') return;
+  const container = document.getElementById('inventario-lista');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa"><i class="fas fa-spinner fa-spin"></i></div>';
+  const { data, error } = await supa.from('inventario')
+    .select('id, nome, quantidade, unidade, quantidade_minima, observacoes, produto_id, perecivel, data_validade, produtos!inventario_produto_id_fkey(nome)')
     .order('nome');
-
   if (error) {
-    // Fallback sem join se der erro de relação
-    const { data: d2, error: e2 } = await supa.from('inventario').select('*').order('nome');
-    if (e2) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#e74c3c">Erro: ${e2.message}</td></tr>`;
-      return;
-    }
+    const { data: d2 } = await supa.from('inventario').select('*').order('nome');
     _inventarioItems = (d2 || []).map(i => ({ ...i, produtos: null }));
   } else {
     _inventarioItems = data || [];
   }
-  _renderInventario(_inventarioItems);
+  _renderInventarioCards();
   _verificarAlertasEstoque();
 }
 
-function _renderInventario(items) {
-  const tbody = document.getElementById('inventario-lista');
-  if (!tbody) return;
-  if (!items || items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#aaa">Nenhum item cadastrado. Clique em "+ Novo Item" para começar.</td></tr>';
+function _renderInventarioCards() {
+  const container = document.getElementById('inventario-lista');
+  if (!container) return;
+  if (!_inventarioItems.length) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa">Nenhum item. Clique em "+ Novo Item".</div>';
     return;
   }
-  tbody.innerHTML = items.map(item => {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  container.innerHTML = _inventarioItems.map(item => {
     const qtd = item.quantidade ?? 0;
     const min = item.quantidade_minima ?? 0;
-    let statusHtml, rowBg;
+    let bg = '', badgeStyle = '', badgeText = '';
     if (qtd <= 0) {
-      statusHtml = '<span style="background:#fee2e2;color:#dc2626;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">🔴 Zerado</span>';
-      rowBg = '#fff5f5';
+      bg = '#fff5f5'; badgeStyle = 'background:#fee2e2;color:#dc2626'; badgeText = '🔴 Zerado';
     } else if (min > 0 && qtd <= min) {
-      statusHtml = '<span style="background:#fef3c7;color:#d97706;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">⚠️ Baixo</span>';
-      rowBg = '#fffbeb';
+      bg = '#fffbeb'; badgeStyle = 'background:#fef3c7;color:#d97706'; badgeText = '⚠️ Baixo';
     } else {
-      statusHtml = '<span style="background:#dcfce7;color:#16a34a;border-radius:12px;padding:3px 10px;font-size:0.78rem;font-weight:600">✅ OK</span>';
-      rowBg = '';
+      badgeStyle = 'background:#dcfce7;color:#16a34a'; badgeText = '✅ OK';
     }
-    const prodNome = item.produtos
-      ? `<span style="font-size:0.78rem;background:#e8f4fd;color:#1a6eb5;padding:2px 8px;border-radius:10px">${item.produtos.nome}</span>`
-      : '<span style="color:#ccc;font-size:0.78rem">—</span>';
-    const nomeEsc = (item.nome||'').replace(/'/g,"\'").replace(/"/g,'&quot;');
-    return `<tr style="border-bottom:1px solid #f0f0f0;background:${rowBg}" data-id="${item.id}" data-nome="${(item.nome||'').replace(/"/g,'&quot;')}" data-qtd="${qtd}" data-status="${qtd<=0?'zerado':min>0&&qtd<=min?'baixo':'ok'}">
-      <td style="padding:12px 14px;font-weight:600">${item.nome || ''}${item.observacoes ? `<br><small style="color:#888;font-weight:400">${item.observacoes}</small>` : ''}</td>
-      <td style="padding:12px 8px;text-align:center;color:#666">${item.unidade || 'un'}</td>
-      <td style="padding:12px 8px;text-align:center;font-size:1.05rem;font-weight:700;color:${qtd<=0?'#dc2626':min>0&&qtd<=min?'#d97706':'#16a34a'}">${qtd}</td>
-      <td style="padding:12px 8px;text-align:center;color:#888">${min > 0 ? min : '—'}</td>
-      <td style="padding:12px 8px;text-align:center">${statusHtml}</td>
-      <td style="padding:12px 8px;text-align:center">${prodNome}</td>
-      <td style="padding:12px 8px;text-align:center;white-space:nowrap">
-        <button class="btn btn-sm" style="background:#3498db;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="abrirModalAjuste(${item.id}, '${nomeEsc}', ${qtd})" title="Ajustar">📊</button>
-        <button class="btn btn-sm" style="background:#f59e0b;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="abrirModalInventario(${item.id})" title="Editar">✏️</button>
-        <button class="btn btn-sm" style="background:#e74c3c;color:#fff;margin:2px;padding:5px 8px;border:none;border-radius:6px;cursor:pointer" onclick="excluirInventario(${item.id})" title="Excluir">🗑️</button>
-      </td>
-    </tr>`;
+    let validadeHtml = '';
+    if (item.perecivel && item.data_validade) {
+      const val = new Date(item.data_validade); val.setHours(0,0,0,0);
+      const dias = Math.ceil((val - hoje) / 86400000);
+      if (dias < 0) { validadeHtml = `<span style="font-size:0.72rem;color:#dc2626;font-weight:600">🚫 VENCIDO</span>`; bg = '#fff0f0'; }
+      else if (dias <= 7) { validadeHtml = `<span style="font-size:0.72rem;color:#d97706;font-weight:600">⏰ Vence em ${dias}d</span>`; if (!bg) bg = '#fffbeb'; }
+      else validadeHtml = `<span style="font-size:0.72rem;color:#888">📅 Val: ${new Date(item.data_validade).toLocaleDateString('pt-BR')}</span>`;
+    }
+    const prodNome = item.produtos ? `<span style="font-size:0.72rem;background:#e8f4fd;color:#1a6eb5;padding:2px 8px;border-radius:10px">${item.produtos.nome}</span>` : '';
+    const nEsc = (item.nome||'').replace(/'/g,"\\'");
+    const qtdColor = qtd <= 0 ? '#dc2626' : min > 0 && qtd <= min ? '#d97706' : '#16a34a';
+    return `<div class="inv-card" style="background:${bg}" data-id="${item.id}" data-nome="${(item.nome||'').replace(/"/g,'&quot;')}" data-status="${qtd<=0?'zerado':min>0&&qtd<=min?'baixo':'ok'}">
+      <div class="inv-card-top">
+        <div class="inv-card-nome">${item.nome||''}${item.perecivel?' 🥛':''}${validadeHtml?'<br>'+validadeHtml:''}${item.observacoes?`<br><small style="color:#888;font-weight:400">${item.observacoes}</small>`:''}</div>
+        <span class="inv-card-status-badge" style="${badgeStyle}">${badgeText}</span>
+      </div>
+      <div class="inv-card-row">
+        <div><div class="inv-card-info">Unid: <strong>${item.unidade||'un'}</strong>${min>0?` · Mín: ${min}`:''}</div>${prodNome}</div>
+        <div class="inv-qtd-controls">
+          <button class="inv-qtd-btn minus" onclick="ajusteRapido(${item.id},'sub','${nEsc}',${qtd})">−</button>
+          <span class="inv-qtd-val" style="color:${qtdColor}">${qtd}</span>
+          <button class="inv-qtd-btn plus" onclick="ajusteRapido(${item.id},'add','${nEsc}',${qtd})">+</button>
+        </div>
+      </div>
+      <div class="inv-card-actions">
+        <button style="background:#f59e0b;color:#fff" onclick="abrirModalInventario(${item.id})">✏️ Editar</button>
+        <button style="background:#fee2e2;color:#dc2626" onclick="excluirInventario(${item.id})">🗑️</button>
+      </div>
+    </div>`;
   }).join('');
 }
 
 function filtrarInventario() {
   const busca = (document.getElementById('inv-busca')?.value || '').toLowerCase();
   const status = document.getElementById('inv-filtro-status')?.value || '';
-  document.querySelectorAll('#inventario-lista tr[data-id]').forEach(row => {
-    const matchBusca = !busca || (row.dataset.nome||'').toLowerCase().includes(busca);
-    const matchStatus = !status || row.dataset.status === status;
-    row.style.display = matchBusca && matchStatus ? '' : 'none';
+  document.querySelectorAll('#inventario-lista .inv-card[data-id]').forEach(card => {
+    const m1 = !busca || (card.dataset.nome||'').toLowerCase().includes(busca);
+    const m2 = !status || card.dataset.status === status;
+    card.style.display = m1 && m2 ? '' : 'none';
   });
 }
 
 function _verificarAlertasEstoque() {
-  const baixos = _inventarioItems.filter(i => {
-    const q = i.quantidade ?? 0; const m = i.quantidade_minima ?? 0;
-    return q <= 0 || (m > 0 && q <= m);
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const alertas = [];
+  _inventarioItems.forEach(i => {
+    const q = i.quantidade ?? 0, m = i.quantidade_minima ?? 0;
+    if (q <= 0) alertas.push(`${i.nome} (zerado)`);
+    else if (m > 0 && q <= m) alertas.push(`${i.nome} (${q} ${i.unidade||'un'})`);
+    if (i.perecivel && i.data_validade) {
+      const val = new Date(i.data_validade); val.setHours(0,0,0,0);
+      const dias = Math.ceil((val - hoje)/86400000);
+      if (dias <= 7) alertas.push(`${i.nome} vence ${dias <= 0 ? 'VENCIDO' : 'em '+dias+'d'}`);
+    }
   });
-  const alertEl = document.getElementById('alerta-estoque-baixo');
-  const listaEl = document.getElementById('alerta-estoque-lista');
-  if (!alertEl) return;
-  if (baixos.length > 0) {
-    alertEl.style.display = 'block';
-    listaEl.textContent = baixos.map(i => `${i.nome} (${i.quantidade ?? 0} ${i.unidade || 'un'})`).join(' • ');
-  } else { alertEl.style.display = 'none'; }
+  const el = document.getElementById('alerta-estoque-baixo');
+  const li = document.getElementById('alerta-estoque-lista');
+  if (!el) return;
+  if (alertas.length) { el.style.display = 'block'; li.textContent = alertas.join(' • '); }
+  else el.style.display = 'none';
+}
+
+function ajusteRapido(id, tipo, nome, qtdAtual) {
+  abrirModalAjuste(id, nome, qtdAtual);
+  setTipoAjuste(tipo);
 }
 
 async function abrirModalInventario(id = null) {
   document.getElementById('inv-id').value = id || '';
-  document.getElementById('inv-nome').value = '';
-  document.getElementById('inv-qtd').value = '';
+  ['inv-nome','inv-qtd','inv-minimo','inv-obs','inv-validade'].forEach(i => { const el = document.getElementById(i); if(el) el.value = ''; });
+  const per = document.getElementById('inv-perecivel'); if(per) per.checked = false;
+  const valA = document.getElementById('inv-validade-area'); if(valA) valA.style.display = 'none';
   document.getElementById('inv-unidade').value = 'un';
-  document.getElementById('inv-minimo').value = '';
-  document.getElementById('inv-obs').value = '';
   document.getElementById('inv-produto-id').innerHTML = '<option value="">— Sem vínculo —</option>';
-  document.getElementById('modal-inv-titulo').textContent = id ? '✏️ Editar Item de Estoque' : '📦 Novo Item de Estoque';
-
+  document.getElementById('modal-inv-titulo').textContent = id ? '✏️ Editar Item' : '📦 Novo Item de Estoque';
   const { data: prods } = await supa.from('produtos').select('id, nome').eq('ativo', true).order('nome');
   if (prods) {
     const sel = document.getElementById('inv-produto-id');
     prods.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = p.nome; sel.appendChild(o); });
   }
-
   if (id) {
     const item = _inventarioItems.find(i => i.id === id);
     if (item) {
@@ -5929,15 +6069,28 @@ async function abrirModalInventario(id = null) {
       document.getElementById('inv-minimo').value = item.quantidade_minima ?? '';
       document.getElementById('inv-obs').value = item.observacoes || '';
       if (item.produto_id) document.getElementById('inv-produto-id').value = item.produto_id;
+      if (item.perecivel && per) {
+        per.checked = true;
+        if (valA) valA.style.display = 'block';
+        const vi = document.getElementById('inv-validade');
+        if (vi && item.data_validade) vi.value = item.data_validade.split('T')[0];
+      }
     }
   }
   document.getElementById('modal-inventario').style.display = 'flex';
+}
+
+function togglePerecivel() {
+  const c = document.getElementById('inv-perecivel')?.checked;
+  const a = document.getElementById('inv-validade-area');
+  if (a) a.style.display = c ? 'block' : 'none';
 }
 
 async function salvarInventario() {
   const id = document.getElementById('inv-id').value;
   const nome = document.getElementById('inv-nome').value.trim();
   if (!nome) { alert('Informe o nome do item.'); return; }
+  const perecivel = document.getElementById('inv-perecivel')?.checked || false;
   const dados = {
     nome,
     quantidade: parseFloat(document.getElementById('inv-qtd').value) || 0,
@@ -5945,6 +6098,8 @@ async function salvarInventario() {
     quantidade_minima: parseFloat(document.getElementById('inv-minimo').value) || null,
     observacoes: document.getElementById('inv-obs').value.trim() || null,
     produto_id: parseInt(document.getElementById('inv-produto-id').value) || null,
+    perecivel,
+    data_validade: perecivel && document.getElementById('inv-validade').value ? document.getElementById('inv-validade').value : null,
   };
   const { error } = id
     ? await supa.from('inventario').update(dados).eq('id', id)
@@ -5955,9 +6110,8 @@ async function salvarInventario() {
 }
 
 async function excluirInventario(id) {
-  if (!confirm('Excluir este item do estoque?')) return;
-  const { error } = await supa.from('inventario').delete().eq('id', id);
-  if (error) { alert('Erro: ' + error.message); return; }
+  if (!confirm('Excluir este item?')) return;
+  await supa.from('inventario').delete().eq('id', id);
   carregarInventario();
 }
 
@@ -5969,7 +6123,7 @@ function setTipoAjuste(tipo) {
   });
   const labels = { add: 'Quantidade a adicionar', sub: 'Quantidade a remover', set: 'Nova quantidade total' };
   const el = document.getElementById('ajuste-qtd-label');
-  if (el) el.textContent = labels[tipo] || 'Quantidade';
+  if (el) el.textContent = labels[tipo];
 }
 
 function abrirModalAjuste(id, nome, qtdAtual) {
@@ -5985,17 +6139,18 @@ function abrirModalAjuste(id, nome, qtdAtual) {
 async function confirmarAjuste() {
   const id = document.getElementById('ajuste-inv-id').value;
   const qtd = parseFloat(document.getElementById('ajuste-qtd').value);
-  if (isNaN(qtd) || qtd < 0) { alert('Informe uma quantidade válida.'); return; }
+  if (isNaN(qtd) || qtd < 0) { alert('Quantidade inválida.'); return; }
   const item = _inventarioItems.find(i => i.id == id);
   const atual = item ? (item.quantidade ?? 0) : 0;
   const nova = _tipoAjuste === 'add' ? atual + qtd : _tipoAjuste === 'sub' ? Math.max(0, atual - qtd) : qtd;
   const { error } = await supa.from('inventario').update({ quantidade: nova }).eq('id', id);
   if (error) { alert('Erro: ' + error.message); return; }
+  const motivo = document.getElementById('ajuste-motivo').value.trim();
+  const userEmail = (await supa.auth.getUser()).data?.user?.email || '';
   await supa.from('inventario_movimentos').insert([{
     inventario_id: parseInt(id), tipo: _tipoAjuste, quantidade: qtd,
-    motivo: document.getElementById('ajuste-motivo').value.trim() || null,
-    usuario_email: (await supa.auth.getUser()).data?.user?.email || '',
-  }]).catch(() => {});
+    motivo: motivo || null, usuario_email: userEmail,
+  }]).then(() => {}).catch(() => {});
   fecharModal('modal-ajuste-estoque');
   carregarInventario();
 }
@@ -6003,7 +6158,7 @@ async function confirmarAjuste() {
 async function _carregarSelectInventario(selectedId = null) {
   const sel = document.getElementById('prod-inventario-id');
   if (!sel) return;
-  sel.innerHTML = '<option value="">— Selecione o item do estoque —</option>';
+  sel.innerHTML = '<option value="">— Selecione o item —</option>';
   const { data } = await supa.from('inventario').select('id, nome, quantidade, unidade').order('nome');
   if (data) {
     data.forEach(i => {

@@ -1,76 +1,66 @@
-// sw.js — Service Worker do Simbora Food Park
-const CACHE_NAME = 'simbora-v3';
-const ASSETS_TO_CACHE = [
-    '/index.html',
-    '/style.css',
-    '/app.js',
-    '/supabaseClient.js',
-    '/manifest.json',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css',
-    'https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;700&display=swap'
+const CACHE_NAME = 'simbora-v4';
+
+// Never intercept requests from these domains
+const BLOCKED_ORIGINS = [
+  'instagram.', 'fbcdn.net', 'facebook.com',
+  'chrome-extension://', 'accounts.google.',
 ];
 
-// Instala e faz cache dos assets estáticos
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/admin.html',
+  '/admin.css',
+  '/admin.js',
+  '/app.js',
+  '/styles.css',
+  '/supabaseClient.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+];
+
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS_TO_CACHE).catch(() => {
-                // Silencia erros de CORS em recursos externos
-            });
-        })
-    );
-    self.skipWaiting();
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return Promise.allSettled(
+        ASSETS_TO_CACHE.map(url => cache.add(url).catch(() => {}))
+      );
+    })
+  );
 });
 
-// Ativa e limpa caches antigos
 self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys().then((keys) =>
-            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-        )
-    );
-    self.clients.claim();
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 
-// Estratégia: Network First, fallback para cache
 self.addEventListener('fetch', (event) => {
-    // Não intercepta chamadas ao Supabase (sempre online)
-    if (event.request.url.includes('supabase.co')) return;
+  const url = event.request.url;
 
-    event.respondWith(
-        fetch(event.request)
-            .then((res) => {
-                // Atualiza cache com versão nova
-                const resClone = res.clone();
-                caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-                return res;
-            })
-            .catch(() => caches.match(event.request))
-    );
-});
+  // Never intercept cross-origin domains that block cross-origin
+  const shouldSkip = BLOCKED_ORIGINS.some(d => url.includes(d));
+  if (shouldSkip) return; // let browser handle natively
 
-// Recebe notificações push
-self.addEventListener('push', (event) => {
-    const data = event.data ? event.data.json() : { title: 'Simbora Food Park', body: 'Novidade!' };
-    event.waitUntil(
-        self.registration.showNotification(data.title || 'Simbora Food Park 🍕', {
-            body: data.body,
-            icon: 'https://i.ibb.co/9kH7PzZB/simbora.jpg',
-            badge: 'https://i.ibb.co/9kH7PzZB/simbora.jpg',
-            vibrate: [200, 100, 200],
-            tag: 'pedido-update',
-            renotify: true
+  // Skip non-GET
+  if (event.request.method !== 'GET') return;
+
+  // Skip Supabase API calls
+  if (url.includes('supabase.co') || url.includes('supabase.io')) return;
+
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request)
+        .then((response) => {
+          if (!response || response.status !== 200 || response.type === 'opaque') return response;
+          const toCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, toCache));
+          return response;
         })
-    );
-});
-
-// Click na notificação abre o app
-self.addEventListener('notificationclick', (event) => {
-    event.notification.close();
-    event.waitUntil(
-        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-            if (clientList.length > 0) return clientList[0].focus();
-            return clients.openWindow('/index.html');
-        })
-    );
+        .catch(() => cached || new Response('Offline', { status: 503 }));
+    })
+  );
 });
