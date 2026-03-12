@@ -533,10 +533,12 @@
             <h4 style="margin-bottom:12px">Cadastrar Usuário</h4>
             <div class="equipe-form">
               <input type="email" id="novo-user-email" placeholder="Email" class="form-control" />
+              <input type="text" id="novo-user-nome" placeholder="Nome de exibição (ex: João Garçom)" class="form-control" />
               <input type="text" id="novo-user-senha" placeholder="Senha (mín. 6)" class="form-control" />
               <select id="novo-user-cargo" class="form-control">
-                <option value="funcionario">Funcionário</option>
-                <option value="gerente">Gerente</option>
+                <option value="garcom">🍽️ Garçom</option>
+                <option value="funcionario">👷 Funcionário</option>
+                <option value="gerente">👔 Gerente</option>
               </select>
               <button class="btn btn-success" onclick="cadastrarUsuario()">
                 <i class="fas fa-user-plus"></i> Criar
@@ -547,6 +549,7 @@
             <table class="table">
               <thead>
                 <tr>
+                  <th>Nome</th>
                   <th>Email</th>
                   <th>Cargo</th>
                   <th>Data</th>

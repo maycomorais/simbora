@@ -2193,9 +2193,15 @@ async function enviarZap() {
   let pedidoDbId = null;
   let numeroPedido = null;
   
+  // Pedido 100% bebidas → entra direto como pronto (não vai para cozinha)
+  const _soBebidas = carrinho.every(i => {
+    const cat = (i.categoria_slug || i.cat || '').toLowerCase();
+    return cat.includes('bebida') || cat.includes('drink');
+  });
+
   if (typeof supa !== 'undefined') {
     const pedidoDb = {
-      status: 'pendente',
+      status: _soBebidas ? 'pronto_entrega' : 'pendente',
       tipo_entrega: modoEntrega,
       subtotal: totalItens,
       frete_cobrado_cliente: modoEntrega === 'delivery' ? freteAplicado : 0,

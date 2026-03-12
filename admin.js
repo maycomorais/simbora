@@ -6,6 +6,8 @@ let AJUDA_COMBUSTIVEL = 20000; // Carregado do banco em carregarConfiguracoes()
 const COORD_LOJA = { lat: -25.2365803, lng: -57.5380816 };
 
 let perfilUsuario = null;
+let _perfilId     = null;   // UUID do usuário logado
+let _perfilNome   = null;   // nome_display do usuário logado
 let audioHabilitado = false; // Controle de permissão do navegador
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -36,10 +38,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const session = await checkUser();
     const { data: perfil } = await supa
       .from('perfis_acesso')
-      .select('cargo')
+      .select('cargo, nome_display')
       .eq('id', session.user.id)
       .single();
 
+    _perfilId   = session.user.id;
+    _perfilNome = perfil?.nome_display || session.user.email || 'Admin';
     perfilUsuario = perfil ? perfil.cargo : 'dono'; // fallback: sem perfil = dono (instalação nova)
     const elCargo = document.getElementById('user-cargo');
     if (elCargo) elCargo.innerText = perfilUsuario.toUpperCase();
@@ -919,14 +923,18 @@ async function calcularFinanceiro() {
     else if (pag.includes('efetivo') || pag.includes('dinheiro')) totalEfetivo += valorPedido;
 
     if (p.tipo_entrega === 'delivery') {
-      custoEntregas += typeof TAXA_MOTOBOY !== 'undefined' ? TAXA_MOTOBOY : 5000;
+      // Usa frete_motoboy salvo no pedido (configurado via tabela_frete).
+      // Fallback para TAXA_MOTOBOY fixo apenas em pedidos antigos sem o campo.
+      const taxaEntrega = safeNum(p.frete_motoboy) || (typeof TAXA_MOTOBOY !== 'undefined' ? TAXA_MOTOBOY : 5000);
+      custoEntregas += taxaEntrega;
       const nomeMoto = p.motoboys?.nome || 'Sem Motoboy';
       if (!motoMap[nomeMoto]) {
-        motoMap[nomeMoto] = 0;
+        motoMap[nomeMoto] = { entregas: 0, frete_total: 0 };
         // Adiciona combustível 1× por motoboy único no período
         custoEntregas += typeof AJUDA_COMBUSTIVEL !== 'undefined' ? AJUDA_COMBUSTIVEL : 20000;
       }
-      motoMap[nomeMoto]++;
+      motoMap[nomeMoto].entregas++;
+      motoMap[nomeMoto].frete_total += taxaEntrega;
     }
   });
 
@@ -988,16 +996,16 @@ async function calcularFinanceiro() {
       tbodyMoto.innerHTML =
         '<tr><td colspan="4" style="text-align:center; color:#999">Nenhuma entrega no período</td></tr>';
     } else {
-      for (const [nome, qtd] of Object.entries(motoMap)) {
-        const taxaMoto = typeof TAXA_MOTOBOY !== 'undefined' ? TAXA_MOTOBOY : 5000;
+      for (const [nome, dados] of Object.entries(motoMap)) {
+        const qtd = dados.entregas;
+        const freteTotal = dados.frete_total;
         const combustivel = typeof AJUDA_COMBUSTIVEL !== 'undefined' ? AJUDA_COMBUSTIVEL : 20000;
-        const totalEntregas = qtd * taxaMoto;
-        const totalMoto = totalEntregas + combustivel; // combustível: 1x por motoboy por dia
+        const totalMoto = freteTotal + combustivel;
         tbodyMoto.innerHTML += `
                     <tr>
                         <td data-label="Nome">${nome}</td>
                         <td data-label="Entregas">${qtd}</td>
-                        <td data-label="Taxa">Gs ${taxaMoto.toLocaleString('es-PY')} × ${qtd} + comb. Gs ${combustivel.toLocaleString('es-PY')}</td>
+                        <td data-label="Taxa">Frete: Gs ${freteTotal.toLocaleString('es-PY')} + comb. Gs ${combustivel.toLocaleString('es-PY')}</td>
                         <td data-label="Total a Pagar"><strong>Gs ${totalMoto.toLocaleString('es-PY')}</strong></td>
                     </tr>`;
       }
@@ -1518,7 +1526,7 @@ function enviarRotaZap() {
       }
 
       msg += `-----------------\n`;
-      taxaTotal += typeof TAXA_MOTOBOY !== 'undefined' ? TAXA_MOTOBOY : 5000;
+      taxaTotal += (parseFloat(p.frete_motoboy) || 0) || (typeof TAXA_MOTOBOY !== 'undefined' ? TAXA_MOTOBOY : 5000);
     } catch (e) {
       console.error('Erro ao processar pedido na rota:', e);
     }
@@ -1859,6 +1867,13 @@ async function salvarProduto() {
     // Compatibilidade retroativa: mantém e_montavel para indicar tipo
     const isM = usaMontavel.includes(tipo) || tipo === 'shake';
 
+    // Para tipo kg: salva preco_kg em montagem_config
+    if (tipo === 'kg') {
+      const precoKg = parseFloat(document.getElementById('prod-preco-kg')?.value) || 0;
+      if (!precoKg) { alert('⚠️ Informe o preço por kg!'); return; }
+      configFinal = { __tipo: 'kg', preco_kg: precoKg };
+    }
+
     // Para variações: preco = menor valor entre as variações (usado no "A partir de")
     let precoBase = parseFloat(document.getElementById('prod-preco').value) || 0;
     if (tipo === 'variacoes' && configFinal.variacoes && configFinal.variacoes.length > 0) {
@@ -1908,6 +1923,8 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   document.getElementById('box-preview').style.display = 'none';
   document.getElementById('prod-somente-balcao').checked = false;
   document.getElementById('prod-tem-extras').checked = false;
+  const _pkgEl = document.getElementById('prod-preco-kg');
+  if (_pkgEl) _pkgEl.value = '';
   document.getElementById('extras-area').style.display = 'none';
   const _te = document.getElementById('prod-tem-estoque');
   const _ea = document.getElementById('estoque-area');
@@ -1992,6 +2009,11 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
         document.getElementById('variacoes-lista').innerHTML = '';
         cfg.variacoes.forEach((v) => addVariacao(v));
       }
+      // Venda por Kg
+      if (tipo === 'kg' && cfg.preco_kg) {
+        const pkgEl = document.getElementById('prod-preco-kg');
+        if (pkgEl) pkgEl.value = cfg.preco_kg;
+      }
       // Extras
       if (cfg.extras && cfg.extras.length > 0) {
         document.getElementById('prod-tem-extras').checked = true;
@@ -2053,6 +2075,7 @@ const BUILDER_MAP = {
   shake: 'builder-shake',
   suco: 'builder-montavel',
   variacoes: 'builder-variacoes',
+  kg: 'builder-kg',
 };
 const BUILDER_HINTS = {
   acai: '🍇 Crie etapas: "Tamanho", "Complementos", "Frutas", "Coberturas".',
@@ -2073,6 +2096,7 @@ const _TIPO_BADGE_LABELS = {
   almoco: '🍽️ Prato',
   combo: '⭐ Combo',
   variacoes: '🎨 Variações',
+  kg: '⚖️ Venda por Kg',
 };
 
 function selecionarTipoBuilder(tipo) {
@@ -4478,16 +4502,30 @@ function renderizarGridPDV(filtroNome = '') {
 
 function _criarCardPDV(p) {
   const img = p.imagem_url || '';
+  const cfg = p.montagem_config;
+  const isKg = cfg && !Array.isArray(cfg) && cfg.__tipo === 'kg';
+  const precoKg = isKg ? (cfg.preco_kg || p.preco || 0) : 0;
+
   const card = document.createElement('div');
-  card.className = 'pdv-card';
+  card.className = 'pdv-card' + (isKg ? ' pdv-card-kg' : '');
   if (img) card.style.backgroundImage = `url('${img}')`;
   else card.classList.add('pdv-card-noimg');
   card.title = p.nome;
   card.onclick = () => adicionarItemPDV(p);
-  card.innerHTML = `
-    <div class="pdv-card-price">Gs ${p.preco.toLocaleString('es-PY')}</div>
-    <div class="pdv-card-overlay">${p.nome}</div>
-  `;
+
+  if (isKg) {
+    card.innerHTML = `
+      <div class="pdv-card-price" style="background:#0891b2">Gs ${precoKg.toLocaleString('es-PY')}<span style="font-size:0.65em;font-weight:500">/kg</span></div>
+      <div class="pdv-card-overlay">
+        <span style="font-size:0.65rem;background:#0891b2;color:#fff;border-radius:10px;padding:1px 6px;display:inline-block;margin-bottom:2px">⚖️ Por Kg</span><br>
+        ${p.nome}
+      </div>`;
+  } else {
+    card.innerHTML = `
+      <div class="pdv-card-price">Gs ${p.preco.toLocaleString('es-PY')}</div>
+      <div class="pdv-card-overlay">${p.nome}</div>
+    `;
+  }
   return card;
 }
 
@@ -4517,8 +4555,15 @@ function _deveMostrarExtrasGlobais(produto) {
 }
 
 function adicionarItemPDV(p) {
-  // Verifica se produto tem variações
+  // Produto vendido por kg → abre modal de peso
   const cfg = p.montagem_config;
+  const isKg = cfg && !Array.isArray(cfg) && cfg.__tipo === 'kg';
+  if (isKg) {
+    _mostrarModalPesoPDV(p, cfg.preco_kg || p.preco || 0);
+    return;
+  }
+
+  // Verifica se produto tem variações
   const tipo = cfg && !Array.isArray(cfg) && cfg.__tipo ? cfg.__tipo : null;
   if (tipo === 'variacoes' && cfg.variacoes && cfg.variacoes.length > 0) {
     const variacoesAtivas = cfg.variacoes.filter((v) => v.ativo !== false);
@@ -4543,6 +4588,242 @@ function adicionarItemPDV(p) {
 }
 
 // Cache seguro de produto — evita JSON.stringify em onclick (causava crash com montagem_config)
+// ── Modal de peso para produtos vendidos por kg ───────────────────
+let _toledoPort = null;  // Web Serial: porta da balança Toledo
+
+function _mostrarModalPesoPDV(produto, precoKg) {
+  document.getElementById('pdv-kg-modal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pdv-kg-modal';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const modal = document.createElement('div');
+  modal.style.cssText =
+    'background:#fff;border-radius:20px;padding:24px 20px;max-width:380px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.35)';
+
+  // Formata peso digitado: trata como gramas, exibe "300g" ou "1,230 kg"
+  function formatarPeso(gramas) {
+    if (!gramas || gramas <= 0) return '';
+    if (gramas < 1000) return gramas + 'g';
+    const kg = (gramas / 1000).toFixed(3).replace(/\.?0+$/, '');
+    return kg.replace('.', ',') + ' kg';
+  }
+
+  function calcularPreco(gramas) {
+    return Math.round(precoKg * gramas / 1000);
+  }
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:1rem;font-weight:800;color:#0891b2">⚖️ ${produto.nome}</div>
+        <div style="font-size:0.8rem;color:#888;margin-top:2px">Gs ${precoKg.toLocaleString('es-PY')} / kg</div>
+      </div>
+      <button id="_kg-close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#999;line-height:1">✕</button>
+    </div>
+
+    <!-- Display de peso -->
+    <div style="background:#f0fdfe;border:2px solid #a5f3fc;border-radius:14px;padding:16px;text-align:center;margin-bottom:14px">
+      <div style="font-size:2.6rem;font-weight:800;color:#0891b2;letter-spacing:-1px;line-height:1" id="_kg-display-peso">—</div>
+      <div style="font-size:0.78rem;color:#0e7490;margin-top:4px">Peso</div>
+    </div>
+
+    <!-- Input gramas -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:0.8rem;font-weight:700;color:#555;display:block;margin-bottom:6px">
+        Digite o peso em gramas:
+      </label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="_kg-input-g" min="1" step="1" placeholder="Ex: 300"
+          style="flex:1;font-size:1.5rem;font-weight:700;padding:10px 14px;border:2px solid #0891b2;border-radius:10px;text-align:center;color:#0891b2;outline:none"
+          oninput="_kgAtualizarPreview()" onkeydown="if(event.key==='Enter')_kgConfirmar()">
+        <span style="font-size:1rem;font-weight:700;color:#888;white-space:nowrap">g</span>
+      </div>
+      <div style="font-size:0.73rem;color:#888;margin-top:4px;text-align:center">
+        Acima de 1000g é convertido automaticamente para kg
+      </div>
+    </div>
+
+    <!-- Preview preço -->
+    <div id="_kg-preview-preco" style="background:#f0fdf4;border:2px solid #bbf7d0;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:0.85rem;color:#166534">Total a cobrar:</span>
+        <span id="_kg-preco-val" style="font-size:1.5rem;font-weight:800;color:#16a34a">Gs 0</span>
+      </div>
+      <div id="_kg-peso-formatado" style="font-size:0.75rem;color:#4ade80;text-align:right;margin-top:2px"></div>
+    </div>
+
+    <!-- Botão balança Toledo -->
+    <button id="_kg-btn-balanca" onclick="_kgConectarBalanca()"
+      style="width:100%;padding:10px;background:#fff;border:2px dashed #0891b2;border-radius:10px;color:#0891b2;font-weight:700;font-size:0.85rem;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px">
+      🔌 <span id="_kg-balanca-txt">Conectar Balança (Toledo Prix 3)</span>
+    </button>
+
+    <!-- Confirmar -->
+    <button id="_kg-btn-ok" onclick="_kgConfirmar()"
+      disabled
+      style="width:100%;padding:14px;background:#0891b2;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:800;cursor:pointer;opacity:0.5;transition:all 0.2s">
+      ✅ Adicionar ao Pedido
+    </button>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector('#_kg-close').onclick = () => overlay.remove();
+
+  // Funções locais expostas globalmente (escopo do modal)
+  window._kgAtualizarPreview = function() {
+    const g = parseInt(document.getElementById('_kg-input-g')?.value) || 0;
+    const displayPeso = document.getElementById('_kg-display-peso');
+    const previewBox  = document.getElementById('_kg-preview-preco');
+    const precoVal    = document.getElementById('_kg-preco-val');
+    const pesoFmt     = document.getElementById('_kg-peso-formatado');
+    const btnOk       = document.getElementById('_kg-btn-ok');
+
+    if (g > 0) {
+      const fmt = formatarPeso(g);
+      const preco = calcularPreco(g);
+      if (displayPeso) displayPeso.textContent = fmt;
+      if (precoVal) precoVal.textContent = `Gs ${preco.toLocaleString('es-PY')}`;
+      if (pesoFmt) pesoFmt.textContent = `${g}g = ${fmt} × Gs ${precoKg.toLocaleString('es-PY')}/kg`;
+      if (previewBox) previewBox.style.display = 'block';
+      if (btnOk) { btnOk.disabled = false; btnOk.style.opacity = '1'; }
+    } else {
+      if (displayPeso) displayPeso.textContent = '—';
+      if (previewBox) previewBox.style.display = 'none';
+      if (btnOk) { btnOk.disabled = true; btnOk.style.opacity = '0.5'; }
+    }
+  };
+
+  window._kgConfirmar = function() {
+    const g = parseInt(document.getElementById('_kg-input-g')?.value) || 0;
+    if (!g || g <= 0) {
+      document.getElementById('_kg-input-g')?.focus();
+      return;
+    }
+    const preco = calcularPreco(g);
+    carrinhoPDV.push({
+      id: produto.id + '_kg_' + Date.now(),
+      nome: produto.nome,
+      preco: preco,
+      preco_kg: precoKg,
+      peso_gramas: g,
+      qtd: 1,
+      _isKg: true,
+      img: produto.imagem_url || '',
+      montagem: [],
+      obs: '',
+    });
+    atualizarCarrinhoPDV();
+    overlay.remove();
+  };
+
+  window._kgConectarBalanca = async function() {
+    const btn = document.getElementById('_kg-btn-balanca');
+    const txt = document.getElementById('_kg-balanca-txt');
+
+    // Web Serial API check
+    if (!navigator.serial) {
+      alert('⚠️ Web Serial API não suportada neste navegador.\nUse Google Chrome ou Edge para conectar a balança.');
+      return;
+    }
+
+    // Se porta já conectada, desconectar
+    if (_toledoPort) {
+      try { await _toledoPort.close(); } catch(_) {}
+      _toledoPort = null;
+      if (txt) txt.textContent = 'Conectar Balança (Toledo Prix 3)';
+      if (btn) btn.style.background = '#fff';
+      return;
+    }
+
+    try {
+      if (txt) txt.textContent = '⏳ Aguardando seleção da porta...';
+      const port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+      _toledoPort = port;
+      if (txt) txt.textContent = '🟢 Balança conectada — Pressione PRINT na balança';
+      if (btn) { btn.style.background = '#ecfdf5'; btn.style.borderColor = '#16a34a'; btn.style.color = '#16a34a'; }
+
+      // Leitura contínua
+      const reader = port.readable.getReader();
+      let buffer = '';
+
+      const lerDados = async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += new TextDecoder().decode(value);
+
+            // Protocolo Toledo Prix 3 Fit: envia linha ao pressionar PRINT
+            // Formatos possíveis:
+            //   "  0.300 kg\r\n"  →  300g
+            //   " 1.230 kg\r\n"   →  1230g
+            //   "P  0.300\r\n"    →  variação com prefixo P
+            //   "ST,GS,+  0.300kg\r\n"  → formato contínuo
+            if (buffer.includes('\n') || buffer.includes('\r')) {
+              const linhas = buffer.split(/[\r\n]+/);
+              buffer = linhas.pop() || '';  // mantém fragmento incompleto
+
+              for (const linha of linhas) {
+                const limpa = linha.trim();
+                if (!limpa) continue;
+
+                // Extrai número de kg: procura padrão X.XXX ou X,XXX seguido de "kg" (opcional)
+                const match = limpa.match(/([\d]+[.,][\d]{1,3})\s*kg?/i)
+                           || limpa.match(/[STPG,\s]*([\d]+[.,][\d]{1,3})/);
+
+                if (match) {
+                  const kgStr = match[1].replace(',', '.');
+                  const kgVal = parseFloat(kgStr);
+                  if (!isNaN(kgVal) && kgVal > 0) {
+                    const gramas = Math.round(kgVal * 1000);
+                    // Preenche input e atualiza preview
+                    const inp = document.getElementById('_kg-input-g');
+                    if (inp) {
+                      inp.value = gramas;
+                      window._kgAtualizarPreview();
+                      // Flash visual de confirmação
+                      inp.style.borderColor = '#16a34a';
+                      inp.style.background = '#f0fdf4';
+                      setTimeout(() => {
+                        if (inp) { inp.style.borderColor = '#0891b2'; inp.style.background = ''; }
+                      }, 1200);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch(e) {
+          if (_toledoPort) {
+            if (txt) txt.textContent = '🔴 Balança desconectada';
+            if (btn) { btn.style.background = '#fff'; btn.style.borderColor = '#0891b2'; btn.style.color = '#0891b2'; }
+            _toledoPort = null;
+          }
+        } finally {
+          try { reader.releaseLock(); } catch(_) {}
+        }
+      };
+
+      lerDados();
+
+    } catch(e) {
+      if (txt) txt.textContent = 'Conectar Balança (Toledo Prix 3)';
+      if (e.name !== 'NotFoundError') {
+        console.error('Erro balança:', e);
+      }
+    }
+  };
+
+  // Foca no input após render
+  setTimeout(() => document.getElementById('_kg-input-g')?.focus(), 100);
+}
+
 window._pdvProdCache = {};
 
 function _mostrarModalVariacaoPDV(produto, variacoes) {
@@ -4785,12 +5066,29 @@ function atualizarCarrinhoPDV() {
       total += item.preco * item.qtd;
       const row = document.createElement('div');
       row.className = 'pdv-item-row';
-      row.innerHTML = `
-        <div class="pdv-item-info"><strong>${item.qtd}x</strong> ${item.nome}</div>
-        <div class="pdv-item-acoes">
-          <span>Gs ${(item.preco * item.qtd).toLocaleString('es-PY')}</span>
-          <button class="btn btn-sm btn-danger" onclick="removerItemPDV(${idx})">✕</button>
-        </div>`;
+
+      if (item._isKg) {
+        // Produto por kg: mostra peso em vez de qtd
+        const g = item.peso_gramas || 0;
+        const pesofmt = g >= 1000
+          ? (g / 1000).toFixed(3).replace(/\.?0+$/, '').replace('.', ',') + ' kg'
+          : g + 'g';
+        row.innerHTML = `
+          <div class="pdv-item-info">
+            <strong style="color:#0891b2">⚖️ ${pesofmt}</strong> ${item.nome}
+          </div>
+          <div class="pdv-item-acoes">
+            <span>Gs ${item.preco.toLocaleString('es-PY')}</span>
+            <button class="btn btn-sm btn-danger" onclick="removerItemPDV(${idx})">✕</button>
+          </div>`;
+      } else {
+        row.innerHTML = `
+          <div class="pdv-item-info"><strong>${item.qtd}x</strong> ${item.nome}</div>
+          <div class="pdv-item-acoes">
+            <span>Gs ${(item.preco * item.qtd).toLocaleString('es-PY')}</span>
+            <button class="btn btn-sm btn-danger" onclick="removerItemPDV(${idx})">✕</button>
+          </div>`;
+      }
       lista.appendChild(row);
     });
   }
@@ -4938,17 +5236,18 @@ async function salvarPedidoBalcao() {
   if (carrinhoPDV.length === 0 && window._mesaAbertaId)
     return alert('Adicione ao menos 1 novo item antes de lançar.');
 
-  const mesa = document.getElementById('balcao-mesa').value.trim();
-  if (!mesa) {
-    alert('⚠️ Número de mesa é obrigatório!');
-    document.getElementById('balcao-mesa').focus();
-    return;
-  }
+  const _soKg = carrinhoPDV.length > 0 && carrinhoPDV.every((i) => i._isKg);
 
-  const cli = document.getElementById('balcao-cliente').value || 'Cliente';
-  const tel = document.getElementById('balcao-telefone').value || '';
-  let pag = document.getElementById('balcao-pag').value;
-  const nomeFinal = `MESA ${mesa} - ${cli}`;
+  const mesa = document.getElementById('balcao-mesa').value.trim();
+  const cli  = document.getElementById('balcao-cliente').value.trim() || 'Cliente';
+  const tel  = document.getElementById('balcao-telefone').value.trim() || '';
+  let pag    = document.getElementById('balcao-pag').value;
+
+  // Mesa, nome e telefone são todos opcionais no PDV.
+  // A mesa serve apenas como identificador de comanda em aberto.
+  const nomeFinal = mesa
+    ? `MESA ${mesa} - ${cli}`
+    : (_soKg ? `BALCÃO KG - ${cli}` : `BALCÃO - ${cli}`);
 
   // ── Tratamento Multipagamento ────────────────────────────────
   let obsPagPDV = 'Pagamento no Balcão';
@@ -4972,6 +5271,7 @@ async function salvarPedidoBalcao() {
     qtd: i.qtd,
     montagem: i.montagem || [],
     obs: i.obs || '',
+    ...(i._isKg ? { peso_gramas: i.peso_gramas, preco_kg: i.preco_kg, _isKg: true } : {}),
     status_item: 'pendente', // ← campo de status por item
     lancado_em: new Date().toISOString(),
   }));
@@ -5028,21 +5328,25 @@ async function salvarPedidoBalcao() {
   const _agora = new Date().toISOString();
   const pedido = {
     uid_temporal: `BALC-${Math.floor(Math.random() * 1000)}`,
-    status: _todosBebidas(carrinhoPDV) ? 'pronto_entrega' : 'em_preparo',
+    // Kg express: entra direto como entregue (venda imediata, sem cozinha)
+    status: _soKg ? 'entregue' : (_todosBebidas(carrinhoPDV) ? 'pronto_entrega' : 'em_preparo'),
     tipo_entrega: 'balcao',
     total_geral: totalNovo,
     subtotal: totalNovo,
     frete_cobrado_cliente: 0,
     forma_pagamento: pag,
     itens: novosItens,
-    endereco_entrega: `Mesa ${mesa}`,
+    endereco_entrega: mesa ? `Mesa ${mesa}` : (_soKg ? 'Balcão - Venda Kg' : 'Balcão'),
     cliente_nome: nomeFinal,
     cliente_telefone: tel,
     obs_pagamento: obsPagPDV,
+    garcom_id:   _perfilId   || null,
+    garcom_nome: _perfilNome || null,
     // Timestamps automáticos para PDV (já entra direto em preparo)
     tempo_recebido: _agora,
     tempo_confirmado: _agora,
     tempo_preparo_iniciado: _agora,
+    ...(_soKg ? { tempo_pronto: _agora, tempo_entregue: _agora } : {}),
   };
 
   const { data: novoPedido, error } = await supa.from('pedidos').insert([pedido]).select('id').single();
@@ -5052,6 +5356,33 @@ async function salvarPedidoBalcao() {
   }
   // Descontar estoque imediatamente (PDV não passa por mudarStatus)
   if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
+
+  // ── Impressão automática ───────────────────────────────────────
+  if (novoPedido?.id) {
+    // Monta dados direto (sem segunda busca no banco)
+    const dadosImpressao = {
+      id: novoPedido.id,
+      cliente: { nome: nomeFinal, tel: tel },
+      entrega: { tipo: 'balcao', ref: pedido.endereco_entrega },
+      itens: novosItens.map((i) => ({
+        q: i.qtd || 1,
+        n: i.nome,
+        p: i.preco,
+        t: i.variacao || '',
+        pr: i.preparo || '',
+        m: i.montagem || [],
+        o: i.obs || '',
+        peso_gramas: i.peso_gramas,
+        _isKg: i._isKg,
+      })),
+      valores: { sub: totalNovo, frete: 0, total: totalNovo },
+      pagamento: { metodo: pag, obs: obsPagPDV },
+      data: new Date().toLocaleString('pt-BR'),
+    };
+    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(dadosImpressao))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    window.open(`imprimir.html?d=${base64}`, 'PrintPDV', 'width=400,height=600');
+  }
 
   carrinhoPDV = [];
   document.getElementById('balcao-cliente').value = '';
@@ -5068,8 +5399,26 @@ async function salvarPedidoBalcao() {
   atualizarCarrinhoPDV();
   atualizarBarraMesasAtivas();
   carregarMonitorMesas();
-  const soBebida = _todosBebidas(novosItens);
-  alert(soBebida ? '✅ Pedido registrado! Só bebidas — direto pra balcão.' : 'Pedido enviado para a Cozinha! 👨‍🍳');
+  // Toast não-bloqueante (alert segurava o popup de impressão)
+  const _msgFinal = _soKg ? '✅ Venda registrada!' : _todosBebidas(novosItens) ? '✅ Só bebidas — direto ao balcão.' : '✅ Enviado para a Cozinha!';
+  _pdvToast(_msgFinal);
+}
+
+// ── Toast não-bloqueante do PDV ───────────────────────────────
+function _pdvToast(msg, duracao = 3000) {
+  document.getElementById('_pdv-toast')?.remove();
+  const t = document.createElement('div');
+  t.id = '_pdv-toast';
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a7a2e;color:#fff;padding:12px 28px;border-radius:30px;font-size:1rem;font-weight:700;z-index:999999;box-shadow:0 4px 20px rgba(0,0,0,0.25);pointer-events:none;animation:_toastIn 0.2s ease';
+  t.textContent = msg;
+  if (!document.getElementById('_pdv-toast-style')) {
+    const s = document.createElement('style');
+    s.id = '_pdv-toast-style';
+    s.textContent = '@keyframes _toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+    document.head.appendChild(s);
+  }
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), duracao);
 }
 
 // ── Barra de Mesas Ativas no PDV ─────────────────────────────
@@ -5337,11 +5686,12 @@ async function carregarEquipe() {
       const ehDono = u.cargo === 'dono';
       const ehGerente = u.cargo === 'gerente';
       const ehFuncionario = u.cargo === 'funcionario';
+      const ehGarcom = u.cargo === 'garcom';
 
       // Botão de promoção/rebaixamento (só dono pode gerenciar)
       let acaoCargo = '';
       if (!ehDono && perfilUsuario === 'dono') {
-        if (ehFuncionario) {
+        if (ehFuncionario || ehGarcom) {
           acaoCargo = `<button class="btn btn-sm btn-success" onclick="promoverUsuario('${u.id}', 'gerente')" title="Promover a Gerente"><i class="fas fa-arrow-up"></i> Gerente</button>`;
         } else if (ehGerente) {
           acaoCargo = `<button class="btn btn-sm btn-warning" onclick="promoverUsuario('${u.id}', 'funcionario')" title="Rebaixar a Funcionário"><i class="fas fa-arrow-down"></i> Funcionário</button>`;
@@ -5349,8 +5699,9 @@ async function carregarEquipe() {
         acaoCargo += ` <button class="btn btn-sm btn-danger" onclick="excluirUsuario('${u.id}', '${u.email}')" title="Excluir"><i class="fas fa-trash"></i></button>`;
       }
 
-      const cargoBadge = ehDono ? '🔑 Dono' : ehGerente ? '👔 Gerente' : '👷 Funcionário';
+      const cargoBadge = ehDono ? '🔑 Dono' : ehGerente ? '👔 Gerente' : ehGarcom ? '🍽️ Garçom' : '👷 Funcionário';
       tbody.innerHTML += `<tr>
+                <td><strong>${u.nome_display || '—'}</strong></td>
                 <td>${u.email}</td>
                 <td>${cargoBadge}</td>
                 <td>${dataCriacao}</td>
@@ -5395,11 +5746,13 @@ async function excluirUsuario(id, email) {
 
 async function cadastrarUsuario() {
   const email = document.getElementById('novo-user-email')?.value?.trim();
+  const nomeDisplay = document.getElementById('novo-user-nome')?.value?.trim() || '';
   const senha = document.getElementById('novo-user-senha')?.value;
   const cargo = document.getElementById('novo-user-cargo')?.value;
 
   if (!email || !senha || senha.length < 6)
     return alert('Email e senha (mín. 6 caracteres) são obrigatórios');
+  if (!nomeDisplay) return alert('O nome de exibição é obrigatório');
 
   const btn = event?.target;
   if (btn) {
@@ -5420,13 +5773,14 @@ async function cadastrarUsuario() {
       // 2. Salva perfil no banco usando upsert para evitar duplicata de chave
       const { error: errPerfil } = await supa
         .from('perfis_acesso')
-        .upsert([{ id: data.user.id, email, cargo }], { onConflict: 'id' });
+        .upsert([{ id: data.user.id, email, cargo, nome_display: nomeDisplay }], { onConflict: 'id' });
 
       if (errPerfil) {
         alert('⚠️ Usuário de autenticação criado, mas erro ao salvar perfil: ' + errPerfil.message);
       } else {
         alert('✅ Usuário cadastrado com sucesso!\n\nO usuário receberá um email de confirmação.');
         document.getElementById('novo-user-email').value = '';
+        document.getElementById('novo-user-nome').value = '';
         document.getElementById('novo-user-senha').value = '';
         carregarEquipe();
       }
