@@ -283,7 +283,7 @@
         <div id="multi-status-atend" style="display:none;padding:8px 12px;border-radius:8px;margin-top:6px;font-weight:700;font-size:.83rem"></div>
       </div>
     </div>
-    <button class="btn-lancar" id="btn-lancar" onclick="lancarPedido()">LANCAR NA COZINHA</button>
+    <button class="btn-lancar" id="btn-lancar" onclick="lancarPedido()">🚀 LANÇAR NA COZINHA</button>
   </div>
 </div>
 
@@ -571,6 +571,15 @@ function atualizarCartBar(){
   document.getElementById('cb-count').textContent=qtd;
   document.getElementById('cb-total').textContent='Gs '+tot.toLocaleString('es-PY');
   document.getElementById('cart-bar').classList.toggle('empty', qtd===0);
+  // Atualiza label do botão lançar conforme conteúdo do carrinho
+  var btn=document.getElementById('btn-lancar');
+  if (btn) {
+    var _soKg=carrinho.length>0&&carrinho.every(function(i){return i._isKg;});
+    var _soBebida=carrinho.length>0&&carrinho.every(ehBebida);
+    if (_soKg) btn.textContent='⚖️ REGISTRAR VENDA KG';
+    else if (_soBebida) btn.textContent='🍺 LANÇAR BEBIDAS';
+    else btn.textContent='🚀 LANÇAR NA COZINHA';
+  }
 }
 function abrirCarrinho(){
   if (!carrinho.length) return;
@@ -658,10 +667,10 @@ async function lancarPedido(){
   var obsPag='Atendimento';
   if (pag==='Multipagamento') {
     var partes=cartColetarMulti();
-    if (!partes.length){ toast('Adicione formas de pagamento'); btn.disabled=false; btn.textContent='LANCAR NA COZINHA'; return; }
+    if (!partes.length){ toast('Adicione formas de pagamento'); btn.disabled=false; btn.textContent='🚀 LANÇAR NA COZINHA'; return; }
     var totalPed=carrinho.reduce(function(a,i){return a+i.preco*i.qtd;},0);
     var somaP=partes.reduce(function(a,p){return a+p.valor;},0);
-    if(Math.abs(somaP-totalPed)>1){ toast('Total das formas nao bate'); btn.disabled=false; btn.textContent='LANCAR NA COZINHA'; return; }
+    if(Math.abs(somaP-totalPed)>1){ toast('Total das formas nao bate'); btn.disabled=false; btn.textContent='🚀 LANÇAR NA COZINHA'; return; }
     obsPag=JSON.stringify(partes);
   }
   var nomeFinal=mesa?'MESA '+mesa+' - '+cli:(_soKg?'BALCAO KG - '+cli:'BALCAO - '+cli);
@@ -688,6 +697,11 @@ async function lancarPedido(){
     var res=await supa.from('pedidos').insert([pedido]).select('id').single();
     if (res.error) throw res.error;
     if (res.data&&res.data.id) {
+      // Se o pedido foi lançado diretamente como pronto_entrega (bebidas ou kg),
+      // marcar como "já visto" para não disparar o banner desnecessariamente
+      if (statusFinal === 'pronto_entrega' || statusFinal === 'entregue') {
+        _prontoVisto.add(res.data.id);
+      }
       var dadosImp={id:res.data.id,cliente:{nome:nomeFinal,tel:''},entrega:{tipo:'balcao',ref:pedido.endereco_entrega},
         itens:novosItens.map(function(i){return{q:i.qtd,n:i.nome,p:i.preco,t:i.variacao||'',pr:'',m:i.montagem||[],o:i.obs||'',peso_gramas:i.peso_gramas,_isKg:i._isKg};}),
         valores:{sub:total,frete:0,total:total},pagamento:{metodo:pag,obs:obsPag},garcom:_garcomNome,data:new Date().toLocaleString('pt-BR')};
@@ -706,7 +720,7 @@ async function lancarPedido(){
   } catch(e) {
     toast('Erro: '+e.message); console.error(e);
   } finally {
-    btn.disabled=false; btn.textContent='LANCAR NA COZINHA';
+    btn.disabled=false; btn.textContent='🚀 LANÇAR NA COZINHA';
   }
 }
 

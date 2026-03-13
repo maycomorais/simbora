@@ -752,11 +752,26 @@ async function carregarCozinha() {
                 `;
     });
 
+    // Info de garçom e local de entrega para o KDS
+    const garcomHtml = p.garcom_nome
+      ? `<div style="font-size:0.78rem;color:#fff;opacity:.85;margin-top:2px">🍽️ ${p.garcom_nome}</div>`
+      : '';
+    const localEntrega = p.endereco_entrega || '';
+    const localHtml = localEntrega
+      ? `<div style="font-size:0.82rem;background:rgba(255,255,255,.18);border-radius:5px;padding:2px 7px;font-weight:700">${localEntrega}</div>`
+      : '';
+
     grid.innerHTML += `
             <div class="kds-card">
                 <div class="kds-header" style="background:${corTempo}; color:#fff; padding:10px; border-radius:5px 5px 0 0; display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:bold; font-size:1.1rem">#${p.uid_temporal || p.id}</span>
-                    <span>⏱️ ${minutos} min</span>
+                    <div>
+                      <span style="font-weight:bold; font-size:1.1rem">#${p.uid_temporal || p.id}</span>
+                      ${garcomHtml}
+                    </div>
+                    <div style="text-align:right">
+                      <span>⏱️ ${minutos} min</span>
+                      ${localHtml}
+                    </div>
                 </div>
                 <div style="padding:10px;">
                     <div style="font-weight:bold; font-size:1.1rem; margin-bottom:10px; color:#2c3e50">
@@ -768,7 +783,7 @@ async function carregarCozinha() {
                 </div>
                 <div style="padding:10px; margin-top:auto;">
                     <button class="btn btn-success" style="width:100%; padding:15px; font-size:1.1rem;" onclick="mudarStatus(${p.id}, 'pronto_entrega')">
-                        ✅ PRONTO
+                        ✅ PRONTO — ${p.garcom_nome ? `avisa ${p.garcom_nome.split(' ')[0]}` : 'entregar'}
                     </button>
                 </div>
             </div>
